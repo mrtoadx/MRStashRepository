@@ -1,0 +1,32 @@
+name: MRStashTranscode
+description: Transcodes h264 scenes to h265. Adds a codec badge to scene pages with a one-click transcode workflow.
+version: 1.2.0
+exec:
+  - python3
+  - /root/.stash/plugins/MRStashTranscode/MRStashTranscode.py
+interface: raw
+tasks:
+  - name: Batch Transcode Tag to H265
+    description: Finds all scenes with the configured tag and transcodes their h264 files to h265.
+    defaultArgs:
+      mode: Batch Transcode Tag to H265
+  - name: Dry Run
+    description: Estimates output size for a single scene without transcoding.
+    defaultArgs:
+      mode: Dry Run
+  - name: Transcode Scene
+    description: Transcodes a single scene by ID.
+    defaultArgs:
+      mode: Transcode Scene
+ui:
+  javascript:
+    - MRStashTranscode.js
+  css:
+    - MRStashTranscode.css
+  assets:
+    /: assets/
+settings:
+  target_tag:
+    displayName: Target Tag
+    description: Tag name used for batch transcoding jobs.
+    type: STRING

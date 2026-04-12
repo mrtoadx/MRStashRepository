@@ -1,0 +1,31 @@
+name: MRStashDeviceAuth
+description: VR headset device pairing and authenticated stream proxy for Stash. Pairs headsets via a short-lived numeric code, issues UUID device tokens, and proxies both GraphQL and video streams so your API key never leaves the server.
+version: 0.6.0
+url: https://github.com/kroecks/MRStashDeviceAuth
+
+exec:
+  - python3
+
+tasks:
+  - name: Start Sidecar
+    description: Start the MRStashDeviceAuth sidecar HTTP server on port 9997. The UI plugin triggers this automatically — only use this for manual restarts.
+    execArgs:
+      - "{pluginDir}/MRStashDeviceAuth_sidecar.py"
+    defaultArgs:
+      mode: start
+
+ui:
+  javascript:
+    - MRStashDeviceAuth.js
+  assets:
+    /: assets/
+  csp:
+    connect-src:
+      - http://localhost:9997
+      - http://*:9997
+
+settings:
+  sidecar_port:
+    displayName: Sidecar Port
+    description: Port the sidecar listens on. Must be exposed in docker-compose.yml. Default is 9997.
+    type: NUMBER

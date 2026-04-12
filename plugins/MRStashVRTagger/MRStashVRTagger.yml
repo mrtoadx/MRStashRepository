@@ -1,0 +1,28 @@
+name: MRStashVRTagger
+description: Audits scenes for the "Virtual Reality" tag based on aspect ratio. Wide videos should be tagged; tagged videos that aren't wide enough get flagged for removal.
+version: 1.0.0
+exec:
+  - python3
+  - /root/.stash/plugins/MRStashVRTagger/MRStashVRTagger.py
+interface: raw
+tasks:
+  - name: Audit VR Tags
+    description: Scans all scenes and reports which need the VR tag added or removed based on aspect ratio.
+    defaultArgs:
+      mode: Audit VR Tags
+ui:
+  javascript:
+    - MRStashVRTagger.js
+  css:
+    - MRStashVRTagger.css
+  assets:
+    /: assets/
+settings:
+  vr_tag_name:
+    displayName: VR Tag Name
+    description: Name of the tag used to mark VR scenes (default "Virtual Reality").
+    type: STRING
+  vr_aspect_ratio:
+    displayName: VR Aspect Ratio Threshold
+    description: Minimum width/height ratio for a video to count as VR (default 1.9, since most VR is 2:1 or wider).
+    type: STRING
