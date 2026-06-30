@@ -56,7 +56,9 @@ import hmac
 import os
 import random
 import re
+import subprocess
 import sys
+import tempfile
 import time
 import threading
 import uuid
@@ -78,6 +80,11 @@ logging.basicConfig(
 )
 log = logging.getLogger("MRStashDeviceAuth")
 
+def _pip_hint() -> str:
+    if sys.platform == "win32":
+        return "pip install flask requests pyyaml"
+    return "pip3 install flask requests pyyaml --break-system-packages"
+
 try:
     import yaml
     import requests
@@ -86,7 +93,7 @@ try:
 except ImportError as exc:
     logging.basicConfig()
     logging.getLogger("MRStashDeviceAuth").error(
-        "Missing dependency — run: pip3 install flask requests pyyaml --break-system-packages\n%s", exc
+        "Missing dependency — run: %s\n%s", _pip_hint(), exc
     )
     sys.exit(1)
 
@@ -96,7 +103,8 @@ try:
     HAS_PILLOW = True
 except ImportError:
     HAS_PILLOW = False
-    log.warning("Pillow not installed — screenshot resizing disabled. Run: pip3 install Pillow --break-system-packages")
+    pillow_hint = "pip install Pillow" if sys.platform == "win32" else "pip3 install Pillow --break-system-packages"
+    log.warning("Pillow not installed — screenshot resizing disabled. Run: %s", pillow_hint)
 
 # ---------------------------------------------------------------------------
 # Paths & constants
@@ -104,12 +112,17 @@ except ImportError:
 PLUGIN_DIR        = Path(__file__).parent.resolve()
 PAIRING_FILE      = PLUGIN_DIR / "pairing.json"
 LOG_FILE          = PLUGIN_DIR / "sidecar.log"
-PID_FILE          = Path("/tmp/stashvr_sidecar.pid")
+PID_FILE = Path(tempfile.gettempdir()) / "stashvr_sidecar.pid"
 ADMIN_SECRET_FILE = PLUGIN_DIR / "admin_secret.txt"
 ASSETS_DIR        = PLUGIN_DIR / "assets"
 ADMIN_SECRET_ASSET = ASSETS_DIR / "admin_secret.json"
 
-STASH_CONFIG_PATH = Path(os.environ.get("STASH_CONFIG", "/root/.stash/config.yml"))
+def _default_stash_config_path() -> Path:
+    if sys.platform == "win32":
+        return Path.home() / ".stash" / "config.yml"
+    return Path("/root/.stash/config.yml")
+
+STASH_CONFIG_PATH = Path(os.environ.get("STASH_CONFIG", str(_default_stash_config_path())))
 STASH_BASE        = "http://localhost:9999"
 STASH_GRAPHQL_URL = f"{STASH_BASE}/graphql"
 
@@ -826,28 +839,37 @@ def _remove_pid() -> None:
     PID_FILE.unlink(missing_ok=True)
 
 
+def _pid_is_running(pid: int) -> bool:
+    if sys.platform == "win32":
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
 def _check_already_running() -> bool:
     if not PID_FILE.exists():
         return False
     try:
         pid = int(PID_FILE.read_text().strip())
-        if pid == os.getpid():
-            return False
-        os.kill(pid, 0)
-        # Extra check: confirm the process is actually our sidecar
-        try:
-            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace")
-            if "MRStashDeviceAuth_sidecar" not in cmdline:
-                raise ProcessLookupError  # not our process
-        except (FileNotFoundError, PermissionError):
-            raise ProcessLookupError
-        return True
-    except (ValueError, ProcessLookupError):
+    except ValueError:
         PID_FILE.unlink(missing_ok=True)
         return False
-    except PermissionError:
-        return True
-
+    if pid == os.getpid():
+        return False
+    if not _pid_is_running(pid):
+        PID_FILE.unlink(missing_ok=True)
+        return False
+    return True
 
 # ---------------------------------------------------------------------------
 # Config from Stash's stdin JSON
@@ -874,54 +896,100 @@ def _get_stash_base(stash_input: dict) -> str:
     return f"{scheme}://{host}:{port}"
 
 
+def _spawn_detached_child(stash_input: dict) -> None:
+    """
+    Re-launch this script as a fully detached background process that will
+    outlive the current (Stash-invoked) process, on both Windows and Unix.
+    The original stdin JSON from Stash is handed off via a temp file, since
+    a freshly spawned subprocess can't read the parent's already-consumed stdin.
+    """
+    config_file = Path(tempfile.gettempdir()) / f"mrstash_sidecar_input_{os.getpid()}_{uuid.uuid4().hex[:8]}.json"
+    config_file.write_text(json.dumps(stash_input))
+
+    cmd = [sys.executable, str(Path(__file__).resolve()), "--child", "--config-file", str(config_file)]
+    kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if sys.platform == "win32":
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+        kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True  # equivalent of setsid — detaches from controlling terminal
+
+    subprocess.Popen(cmd, **kwargs)
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 def main():
-    global STASH_BASE, STASH_GRAPHQL_URL, ADMIN_SECRET
+    global STASH_BASE, STASH_GRAPHQL_URL, ADMIN_SECRET, devices
 
-    try:
-        stash_input_fd = sys.stdin.fileno()
-        raw = os.read(stash_input_fd, 65536)
-        stash_input = json.loads(raw) if raw.strip() else {}
-    except Exception:
+    is_child = "--child" in sys.argv
+
+    if is_child:
+        # This is the detached background process — read the config that
+        # the parent invocation cached for us, since our own stdin is empty.
         stash_input = {}
-    finally:
-        devnull = open(os.devnull, 'r')
-        os.dup2(devnull.fileno(), 0)
-        sys.stdin = devnull
+        try:
+            idx = sys.argv.index("--config-file")
+            config_path = Path(sys.argv[idx + 1])
+            stash_input = json.loads(config_path.read_text())
+        except Exception as exc:
+            log.warning("Could not read cached config: %s", exc)
+        finally:
+            try:
+                config_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
-    if _check_already_running():
-        log.info("Sidecar already running (PID %s). Exiting.",
-                 PID_FILE.read_text().strip())
+        # We have no console once detached — log to file instead.
+        file_handler = logging.FileHandler(LOG_FILE)
+        file_handler.setFormatter(logging.Formatter(
+            "[MRStashDeviceAuth] %(asctime)s %(levelname)s %(message)s",
+            "%Y-%m-%d %H:%M:%S",
+        ))
+        log.addHandler(file_handler)
+    else:
+        # Initial invocation from Stash: read the one-shot JSON config off stdin.
+        try:
+            stash_input_fd = sys.stdin.fileno()
+            raw = os.read(stash_input_fd, 65536)
+            stash_input = json.loads(raw) if raw.strip() else {}
+        except Exception:
+            stash_input = {}
+        finally:
+            devnull = open(os.devnull, 'r')
+            os.dup2(devnull.fileno(), 0)
+            sys.stdin = devnull
+
+        if _check_already_running():
+            log.info("Sidecar already running (PID %s). Exiting.",
+                      PID_FILE.read_text().strip())
+            sys.exit(0)
+
+        log.info("Spawning detached sidecar process…")
+        _spawn_detached_child(stash_input)
+        log.info("Detached process launched — this task invocation is done.")
         sys.exit(0)
 
-    STASH_BASE        = _get_stash_base(stash_input)
+    # --- Everything below this point runs only inside the detached child ---
+
+    STASH_BASE = _get_stash_base(stash_input)
     STASH_GRAPHQL_URL = f"{STASH_BASE}/graphql"
     log.info("Stash internal URL: %s", STASH_BASE)
 
     ADMIN_SECRET = _load_or_create_admin_secret()
     log.info("Admin secret loaded (len=%d)", len(ADMIN_SECRET))
 
-    global devices
     devices = _load_devices()
 
     port = _get_port(stash_input)
     log.info("Starting MRStashDeviceAuth sidecar on :%d (PID %d)", port, os.getpid())
-
-    # Daemonize
-    pid = os.fork()
-    if pid > 0:
-        log.info("Parent exiting — child PID %d will serve requests", pid)
-        sys.exit(0)
-
-    log.info("Child process running as PID %d", os.getpid())
-    sys.stdout.flush()
-    sys.stderr.flush()
-    log_file = open(LOG_FILE, "a")
-    os.dup2(log_file.fileno(), 1)
-    os.dup2(log_file.fileno(), 2)
 
     _write_pid()
     atexit.register(_remove_pid)
@@ -940,7 +1008,6 @@ def main():
     except BaseException as exc:
         log.error("Unexpected error starting Flask: %s", exc, exc_info=True)
         raise
-
 
 if __name__ == "__main__":
     main()
