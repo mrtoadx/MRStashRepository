@@ -42,15 +42,85 @@ def get_scene(url, apikey, scene_id):
     return res.get("data", {}).get("findScene")
 
 
+def ffprobe_stream(path):
+    """Live-probe the first video stream. Returns a dict or None."""
+    try:
+        r = subprocess.run([
+            "ffprobe", "-v", "quiet", "-print_format", "json",
+            "-show_streams", "-select_streams", "v:0", path,
+        ], capture_output=True, text=True)
+        info = json.loads(r.stdout)
+        streams = info.get("streams", [])
+        if streams:
+            s = streams[0]
+            return {
+                "codec_name": s.get("codec_name"),
+                "width": s.get("width"),
+                "height": s.get("height"),
+                "bit_rate": s.get("bit_rate"),
+                "pix_fmt": s.get("pix_fmt"),
+            }
+    except Exception as e:
+        print(f"ffprobe failed: {e}", flush=True)
+    return None
+
+
+def resolution_label(width, height):
+    """Human-ish resolution tag for filenames, keyed off height."""
+    try:
+        h = int(height or 0)
+    except (TypeError, ValueError):
+        h = 0
+    if h >= 2160:
+        return "2160p"
+    if h >= 1440:
+        return "1440p"
+    if h >= 1080:
+        return "1080p"
+    if h >= 720:
+        return "720p"
+    if h >= 480:
+        return "480p"
+    return f"{h}p" if h else "unknown"
+
+
+def build_output_path(input_path, width, height, codec_tag):
+    """Append _<resolution>_<codec> before the extension."""
+    base, ext = os.path.splitext(input_path)
+    res = resolution_label(width, height)
+    return f"{base}_{res}_{codec_tag}{ext}"
+
+
+# Maps the UI/codec keyword to ffmpeg encoder settings and the codec tag
+# we append to filenames. Keep keys lowercase.
+CODEC_PROFILES = {
+    "h265": {"encoder": "libx265", "tag": "h265", "extra": []},
+    "hevc": {"encoder": "libx265", "tag": "h265", "extra": []},
+    "h264": {"encoder": "libx264", "tag": "h264", "extra": []},
+    "avc":  {"encoder": "libx264", "tag": "h264", "extra": []},
+    # libaom-av1 is slow; libsvtav1 is the practical choice when available.
+    "av1":  {"encoder": "libsvtav1", "tag": "av1", "extra": []},
+}
+
+
+def resolve_codec(target):
+    """Return the CODEC_PROFILES entry for a requested target, defaulting h265."""
+    return CODEC_PROFILES.get((target or "h265").lower(), CODEC_PROFILES["h265"])
+
+
 def ffmpeg_transcode(input_path, output_path, extra_args=None, crf=28,
-                      duration_secs=None, progress_path=None):
+                      duration_secs=None, progress_path=None, target_codec="h265"):
     """Run ffmpeg. Writes progress JSON to progress_path if provided."""
+    profile = resolve_codec(target_codec)
+    # x264/x265 take named presets; SVT-AV1 takes a numeric 0-13 (8 ~ medium).
+    preset = "8" if profile["encoder"] == "libsvtav1" else "medium"
     cmd = [
         "ffmpeg", "-y",
         "-progress", "pipe:1",   # write progress to stdout in key=value format
         "-nostats",               # suppress normal stats on stderr
         "-i", input_path,
-        "-c:v", "libx265", "-preset", "medium", "-crf", str(crf),
+        "-c:v", profile["encoder"], "-preset", preset, "-crf", str(crf),
+        *profile["extra"],
         "-c:a", "copy",
     ]
     if extra_args:
@@ -123,6 +193,71 @@ def extract_frame(input_path, output_filename, seek=None):
     ]
     result = subprocess.run(cmd, capture_output=True)
     return output_filename if result.returncode == 0 else None
+
+
+def _write_probe_result(scene_id, data):
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+    out_path = os.path.join(ASSETS_DIR, f"probe_{scene_id}.json")
+    with open(out_path, "w") as f:
+        json.dump(data, f)
+    print(f"Probe result written to {out_path}", flush=True)
+
+
+def task_probe(url, apikey, args):
+    """Live ffprobe on the scene's file. Reports the actual stream codec,
+    which may differ from the codec Stash recorded at scan time."""
+    scene_id = str(args.get("scene_id", "")).strip()
+    if not scene_id:
+        print("Error: No scene_id provided.", flush=True)
+        sys.exit(1)
+
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+    _write_probe_result(scene_id, {"scene_id": scene_id, "status": "pending"})
+
+    scene = get_scene(url, apikey, scene_id)
+    if not scene:
+        _write_probe_result(scene_id, {"scene_id": scene_id, "status": "error",
+                                       "error": f"Scene {scene_id} not found."})
+        sys.exit(1)
+
+    files = scene.get("files", [])
+    if not files:
+        _write_probe_result(scene_id, {"scene_id": scene_id, "status": "error",
+                                       "error": "Scene has no files."})
+        sys.exit(1)
+
+    file = files[0]
+    input_path = file["path"]
+    db_codec = (file.get("video_codec") or "").lower()
+
+    print(f"Probing {input_path}", flush=True)
+    probe = ffprobe_stream(input_path)
+    if not probe:
+        _write_probe_result(scene_id, {
+            "scene_id": scene_id, "status": "error",
+            "error": "ffprobe could not read the file. Check that the path is "
+                     "reachable from the Stash host.",
+            "path": input_path, "db_codec": db_codec,
+        })
+        sys.exit(1)
+
+    live_codec = (probe.get("codec_name") or "").lower()
+    mismatch = bool(live_codec) and bool(db_codec) and live_codec != db_codec \
+        and not ({live_codec, db_codec} <= {"h264", "avc"}) \
+        and not ({live_codec, db_codec} <= {"h265", "hevc"})
+
+    _write_probe_result(scene_id, {
+        "scene_id": scene_id, "status": "done",
+        "path": input_path,
+        "db_codec": db_codec,
+        "live_codec": live_codec,
+        "width": probe.get("width"),
+        "height": probe.get("height"),
+        "bit_rate": probe.get("bit_rate"),
+        "pix_fmt": probe.get("pix_fmt"),
+        "mismatch": mismatch,
+    })
+    print(f"db_codec={db_codec} live_codec={live_codec} mismatch={mismatch}", flush=True)
 
 
 def task_dry_run(url, apikey, args):
@@ -247,6 +382,12 @@ def _write_transcode_status(scene_id, data):
 def task_transcode_scene(url, apikey, args):
     scene_id = str(args.get("scene_id", "")).strip()
     crf = int(args.get("crf", 28))
+    target_codec = (args.get("target_codec", "h265") or "h265").lower()
+    # copy_to_new: "true" -> write a new sibling file; otherwise overwrite original.
+    copy_to_new = str(args.get("copy_to_new", "true")).lower() in ("1", "true", "yes")
+    # source_codec: optional override from the live probe (UI trusts probe over DB).
+    source_override = (args.get("source_codec", "") or "").lower()
+
     if not scene_id:
         print("Error: No scene_id provided.", flush=True)
         sys.exit(1)
@@ -262,40 +403,111 @@ def task_transcode_scene(url, apikey, args):
         sys.exit(1)
 
     file = files[0]
-    codec = file.get("video_codec", "").lower()
-    if codec not in ("h264", "avc"):
-        print(f"Skipping: codec is {codec}, not h264.", flush=True)
-        return
-
+    db_codec = (file.get("video_codec") or "").lower()
+    # Trust the live-probe value when the UI passes one.
+    source_codec = source_override or db_codec
     input_path = file["path"]
-    base, ext = os.path.splitext(input_path)
-    output_path = f"{base}_h265{ext}"
 
-    if os.path.exists(output_path):
-        print(f"Output already exists: {output_path}", flush=True)
-        _write_transcode_status(scene_id, {"scene_id": scene_id, "status": "done", "note": "already existed", "output": output_path})
+    profile = resolve_codec(target_codec)
+    target_tag = profile["tag"]
+
+    # No-op guard: don't re-encode into the same codec family.
+    same_family = (
+        {source_codec, target_tag} <= {"h264", "avc"} or
+        {source_codec, target_tag} <= {"h265", "hevc"} or
+        (source_codec == "av1" and target_tag == "av1")
+    )
+    if same_family:
+        msg = f"Source is already {source_codec}; target {target_tag} is the same codec. Skipping."
+        print(msg, flush=True)
+        _write_transcode_status(scene_id, {"scene_id": scene_id, "status": "done",
+                                           "note": msg, "output": input_path})
         return
+
+    # Probe live dimensions for the filename; fall back to DB width/height.
+    probe = ffprobe_stream(input_path) or {}
+    width = probe.get("width") or file.get("width")
+    height = probe.get("height") or file.get("height")
 
     progress_path = os.path.join(ASSETS_DIR, f"progress_{scene_id}.json")
-    duration_secs = (files[0].get("duration") or 0) if files else 0
-    _write_transcode_status(scene_id, {"scene_id": scene_id, "status": "running", "input": input_path, "output": output_path, "crf": crf})
-    print(f"Transcoding scene {scene_id}: {input_path} CRF={crf} duration={duration_secs}s", flush=True)
-    returncode, elapsed = ffmpeg_transcode(input_path, output_path, crf=crf,
-                                           duration_secs=duration_secs, progress_path=progress_path)
+    duration_secs = file.get("duration") or 0
 
-    if returncode == 0:
-        output_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
-        _write_transcode_status(scene_id, {
-            "scene_id": scene_id, "status": "done",
-            "input": input_path, "output": output_path,
-            "crf": crf, "elapsed": elapsed, "output_size": output_size,
-        })
-        print(f"Done in {elapsed}s: {output_path}", flush=True)
-        print("Run a library scan to pick up the new file.", flush=True)
+    if copy_to_new:
+        # New sibling file: name_<res>_<codec>.ext
+        output_path = build_output_path(input_path, width, height, target_tag)
+        if os.path.exists(output_path):
+            print(f"Output already exists: {output_path}", flush=True)
+            _write_transcode_status(scene_id, {"scene_id": scene_id, "status": "done",
+                                               "note": "already existed", "output": output_path})
+            return
+        encode_target = output_path
+        final_path = output_path
+        replace_original = False
     else:
+        # Overwrite mode: encode to a temp file alongside the original, then move
+        # it onto the original path. Keeping the path identical lets Stash keep
+        # the same file record (re-fingerprinting aside) after a rescan.
+        _, ext = os.path.splitext(input_path)
+        encode_target = input_path + f".mrst_tmp{ext}"
+        final_path = input_path
+        replace_original = True
+        if os.path.exists(encode_target):
+            try:
+                os.remove(encode_target)
+            except OSError:
+                pass
+
+    _write_transcode_status(scene_id, {
+        "scene_id": scene_id, "status": "running",
+        "input": input_path, "output": final_path,
+        "crf": crf, "target_codec": target_tag,
+        "copy_to_new": copy_to_new,
+    })
+    print(f"Transcoding scene {scene_id}: {input_path} -> {final_path} "
+          f"[{source_codec}->{target_tag}] CRF={crf} copy_to_new={copy_to_new} "
+          f"duration={duration_secs}s", flush=True)
+
+    returncode, elapsed = ffmpeg_transcode(
+        input_path, encode_target, crf=crf,
+        duration_secs=duration_secs, progress_path=progress_path,
+        target_codec=target_codec,
+    )
+
+    if returncode != 0 or not os.path.exists(encode_target):
         _write_transcode_status(scene_id, {"scene_id": scene_id, "status": "error"})
         print(f"Error transcoding scene {scene_id}.", flush=True)
+        # Clean up a partial temp file so we don't leave junk next to the original.
+        if replace_original and os.path.exists(encode_target):
+            try:
+                os.remove(encode_target)
+            except OSError:
+                pass
         sys.exit(1)
+
+    if replace_original:
+        try:
+            # os.replace is atomic on the same filesystem and overwrites the dest.
+            os.replace(encode_target, final_path)
+            print(f"Replaced original in place: {final_path}", flush=True)
+        except OSError as e:
+            _write_transcode_status(scene_id, {"scene_id": scene_id, "status": "error",
+                                               "error": f"Failed to replace original: {e}"})
+            print(f"Error replacing original: {e}", flush=True)
+            sys.exit(1)
+
+    output_size = os.path.getsize(final_path) if os.path.exists(final_path) else 0
+    _write_transcode_status(scene_id, {
+        "scene_id": scene_id, "status": "done",
+        "input": input_path, "output": final_path,
+        "crf": crf, "elapsed": elapsed, "output_size": output_size,
+        "target_codec": target_tag, "copy_to_new": copy_to_new,
+        "replaced_original": replace_original,
+    })
+    print(f"Done in {elapsed}s: {final_path}", flush=True)
+    if replace_original:
+        print("Rescan this scene so Stash refreshes the file metadata.", flush=True)
+    else:
+        print("Run a library scan to pick up the new file.", flush=True)
 
 
 def task_batch_transcode(url, apikey, plugins_config):
@@ -401,6 +613,8 @@ def main():
 
     if task_name == "Dry Run":
         task_dry_run(url, apikey, plugin_args)
+    elif task_name == "Probe":
+        task_probe(url, apikey, plugin_args)
     elif task_name == "Transcode Scene":
         task_transcode_scene(url, apikey, plugin_args)
     elif task_name == "Batch Transcode Tag to H265":

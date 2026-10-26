@@ -1,0 +1,735 @@
+/* ── MRStashSanitize ─────────────────────────────────────────────────────── */
+
+/* Overlay */
+.ss-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(2px);
+}
+
+/* Modal box */
+.ss-modal {
+  background: #16181c;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 920px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+
+/* Header */
+.ss-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 24px 24px 0;
+  flex-shrink: 0;
+}
+
+.ss-header-left h2 {
+  font-size: 19px;
+  font-weight: 700;
+  color: #e8e8e8;
+  margin: 0 0 3px;
+  letter-spacing: -0.01em;
+}
+
+.ss-subtitle {
+  font-size: 12px;
+  color: #555;
+  margin: 0;
+}
+
+.ss-close-btn {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+.ss-close-btn:hover { color: #ccc; }
+
+/* Scan bar */
+.ss-scan-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.ss-scan-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ss-progress-track {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ss-progress-fill {
+  height: 100%;
+  background: #4fc3f7;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+
+.ss-scan-msg {
+  font-size: 12px;
+  color: #4fc3f7;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ss-scan-summary {
+  font-size: 13px;
+  color: #666;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ss-stat strong { color: #ddd; }
+.ss-stat-muted  { color: #444; }
+.ss-stat-studio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #9575cd;
+}
+.ss-stat-dirissue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #ff8a65;
+}
+.ss-stat-nostudio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #ef9a9a;
+}
+
+/* Error / success bars */
+.ss-error-bar {
+  margin: 0 24px 12px;
+  padding: 10px 14px;
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.25);
+  border-radius: 6px;
+  font-size: 13px;
+  color: #f44336;
+  flex-shrink: 0;
+}
+
+.ss-success-bar {
+  margin: 0 24px 12px;
+  padding: 10px 14px;
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.25);
+  border-radius: 6px;
+  font-size: 13px;
+  color: #4caf50;
+  flex-shrink: 0;
+}
+
+/* Review section */
+.ss-review-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Toolbar */
+.ss-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.ss-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #777;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.ss-checkbox {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  color: #111;
+}
+.ss-checkbox-on {
+  background: #4fc3f7;
+  border-color: #4fc3f7;
+}
+
+.ss-filter-group {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.ss-filter-btn {
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: #666;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+.ss-filter-btn:hover { color: #bbb; }
+.ss-filter-active {
+  background: rgba(79, 195, 247, 0.12);
+  border-color: rgba(79, 195, 247, 0.3);
+  color: #4fc3f7;
+}
+
+.ss-search {
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  color: #ccc;
+  font-size: 12px;
+  width: 140px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.ss-search:focus { border-color: rgba(79, 195, 247, 0.4); }
+.ss-search::placeholder { color: #444; }
+
+/* List */
+.ss-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px;
+}
+
+.ss-empty-list {
+  padding: 32px;
+  text-align: center;
+  color: #444;
+  font-size: 13px;
+}
+
+/* Row */
+.ss-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 7px;
+  margin-bottom: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+  transition: background 0.12s, border-color 0.12s;
+  cursor: default;
+}
+
+.ss-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ss-row-selected {
+  background: rgba(79, 195, 247, 0.05);
+  border-color: rgba(79, 195, 247, 0.2);
+}
+
+/* Row accent: no studio assigned */
+.ss-row-missing-studio {
+  border-color: rgba(239, 154, 154, 0.18);
+  background: rgba(239, 154, 154, 0.03);
+}
+
+/* Row accent: dir issue but no studio to fix it */
+.ss-row-dir-warn {
+  border-color: rgba(255, 138, 101, 0.18);
+  background: rgba(255, 138, 101, 0.03);
+}
+
+.ss-row-done {
+  padding: 8px 12px;
+  background: rgba(76, 175, 80, 0.04);
+  border-color: rgba(76, 175, 80, 0.15);
+  opacity: 0.55;
+}
+
+.ss-row-done-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #4caf50;
+}
+
+.ss-row-err {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #f44336;
+}
+
+.ss-row-check {
+  padding-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.ss-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ss-row-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.ss-icon-btn {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: #555;
+  cursor: pointer;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.ss-icon-btn:hover:not(:disabled) { color: #ccc; border-color: rgba(255,255,255,0.2); }
+.ss-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.ss-icon-btn-active {
+  background: rgba(79, 195, 247, 0.12);
+  border-color: rgba(79, 195, 247, 0.35);
+  color: #4fc3f7;
+}
+
+.ss-icon-btn-apply {
+  color: #555;
+}
+.ss-icon-btn-apply:hover:not(:disabled) {
+  color: #81c784;
+  border-color: rgba(129, 199, 132, 0.4);
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.ss-scene-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ccc;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.ss-scene-id {
+  font-size: 11px;
+  color: #444;
+  font-weight: 400;
+  font-family: monospace;
+  flex-shrink: 0;
+}
+
+/* Directory-class inline badge (appears next to scene title) */
+.ss-dir-class-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border: 1px solid;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Filename change */
+.ss-filename-change {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ss-filename-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ss-fname-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #444;
+  text-transform: uppercase;
+  width: 30px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.ss-fname {
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 11.5px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+
+.ss-fname-old {
+  background: rgba(244, 67, 54, 0.08);
+  color: #e57373;
+  border: 1px solid rgba(244, 67, 54, 0.15);
+}
+
+/* Inline editable filename */
+.ss-fname-edit-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ss-fname-input {
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 11.5px;
+  padding: 2px 6px;
+  border-radius: 3px 0 0 3px;
+  border: 1px solid rgba(76, 175, 80, 0.25);
+  background: rgba(76, 175, 80, 0.06);
+  color: #81c784;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ss-fname-input:focus {
+  border-color: rgba(76, 175, 80, 0.5);
+  background: rgba(76, 175, 80, 0.1);
+}
+
+.ss-fname-ext {
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 11.5px;
+  padding: 2px 6px 2px 4px;
+  border-radius: 0 3px 3px 0;
+  border: 1px solid rgba(76, 175, 80, 0.15);
+  border-left: none;
+  background: rgba(76, 175, 80, 0.04);
+  color: #4a7a4e;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* "Use Title" button */
+.ss-title-file-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(255, 213, 79, 0.08);
+  border: 1px solid rgba(255, 213, 79, 0.22);
+  border-radius: 3px;
+  color: #ffd54f;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.ss-title-file-btn:hover {
+  background: rgba(255, 213, 79, 0.18);
+  border-color: rgba(255, 213, 79, 0.45);
+  color: #ffe082;
+}
+
+.ss-no-rename {
+  font-size: 11px;
+  color: #444;
+  font-style: italic;
+}
+
+/* Studio folder badge */
+.ss-studio-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(149, 117, 205, 0.22);
+  background: rgba(149, 117, 205, 0.07);
+  color: #9575cd;
+}
+
+.ss-studio-badge code {
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 11px;
+  color: #b39ddb;
+}
+
+.ss-studio-badge-ok {
+  opacity: 0.45;
+  border-color: rgba(149, 117, 205, 0.12);
+}
+
+.ss-studio-badge-off {
+  opacity: 0.5;
+  filter: saturate(0.3);
+}
+
+.ss-studio-from {
+  color: #555;
+  font-size: 10.5px;
+  margin-left: 2px;
+}
+
+.ss-studio-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid rgba(149, 117, 205, 0.35);
+  border-radius: 3px;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  padding: 0;
+}
+.ss-studio-toggle-on {
+  background: #9575cd;
+  border-color: #9575cd;
+  color: #fff;
+}
+.ss-studio-toggle:hover {
+  border-color: #b39ddb;
+}
+
+/* No-studio directory warning badge */
+.ss-no-studio-dir-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 138, 101, 0.22);
+  background: rgba(255, 138, 101, 0.06);
+  color: #ff8a65;
+  line-height: 1.4;
+}
+
+/* Tags row */
+.ss-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.ss-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.ss-tag-new {
+  background: rgba(79, 195, 247, 0.1);
+  border: 1px solid rgba(79, 195, 247, 0.3);
+  color: #4fc3f7;
+}
+
+.ss-tag-existing {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #666;
+}
+
+/* MissingStudio tag chip */
+.ss-tag-missing-studio {
+  background: rgba(239, 154, 154, 0.1);
+  border: 1px solid rgba(239, 154, 154, 0.3);
+  color: #ef9a9a;
+  font-style: italic;
+}
+
+/* Junk token chip */
+.ss-tag-junk {
+  background: rgba(255, 152, 0, 0.08);
+  border: 1px solid rgba(255, 152, 0, 0.22);
+  color: #888;
+  font-style: italic;
+  padding-right: 3px;
+}
+
+.ss-tag-junk-promoting {
+  opacity: 0.6;
+}
+
+.ss-junk-promote-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 152, 0, 0.15);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-radius: 2px;
+  color: #ffb74d;
+  cursor: pointer;
+  padding: 1px 3px;
+  margin-left: 3px;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s;
+}
+.ss-junk-promote-btn:hover:not(:disabled) {
+  background: rgba(255, 152, 0, 0.3);
+  color: #ffe0b2;
+}
+.ss-junk-promote-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Action bar */
+.ss-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(0, 0, 0, 0.2);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.ss-applying-msg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #4fc3f7;
+}
+
+/* Spinner */
+.ss-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(79, 195, 247, 0.25);
+  border-top-color: #4fc3f7;
+  border-radius: 50%;
+  animation: ss-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.ss-spinner-xs {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+}
+
+@keyframes ss-spin { to { transform: rotate(360deg); } }
+
+/* Empty state */
+.ss-empty-state {
+  padding: 40px 24px;
+  text-align: center;
+  color: #4caf50;
+  font-size: 14px;
+}
+
+/* Buttons */
+.ss-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border-radius: 5px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+.ss-btn:hover:not(:disabled) { opacity: 0.85; }
+.ss-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.ss-btn-primary {
+  background: #4fc3f7;
+  color: #0a1929;
+}
+
+.ss-btn-secondary {
+  background: rgba(255, 255, 255, 0.07);
+  color: #aaa;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}

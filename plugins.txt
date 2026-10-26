@@ -1,0 +1,7 @@
+# Plugins synced into plugins/<name> by sync_plugins.sh
+# <name> <git url> [branch/tag; default branch if omitted]
+MRStashDeviceAuth https://github.com/mrtoadx/MRStashDeviceAuth.git
+MRStashDupManager https://github.com/mrtoadx/MRStashDupManager.git
+MRStashSanitize https://github.com/mrtoadx/MRStashSanitize.git
+MRStashTranscode https://github.com/mrtoadx/MRStashTranscode.git
+MRStashVRTagger https://github.com/mrtoadx/MRStashVRTagger.git

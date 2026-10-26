@@ -27,24 +27,24 @@
 
   async function fetchScene(sceneId) {
     const data = await gqlQuery(
-      `query FindScene($id: ID!) {
+        `query FindScene($id: ID!) {
         findScene(id: $id) {
           id title
           paths { screenshot }
           files { path size video_codec width height bit_rate duration }
         }
       }`,
-      { id: sceneId }
+        { id: sceneId }
     );
     return data.findScene;
   }
 
   async function runPluginTask(taskName, args) {
     await gqlQuery(
-      `mutation RunPluginTask($plugin_id: ID!, $task_name: String!, $args: [PluginArgInput!]) {
+        `mutation RunPluginTask($plugin_id: ID!, $task_name: String!, $args: [PluginArgInput!]) {
         runPluginTask(plugin_id: $plugin_id, task_name: $task_name, args: $args)
       }`,
-      { plugin_id: "MRStashTranscode", task_name: taskName, args: args || [] }
+        { plugin_id: "MRStashTranscode", task_name: taskName, args: args || [] }
     );
   }
 
@@ -128,38 +128,35 @@
     useEffect(() => {
       LOG("CodecBadge mounted for scene", sceneId);
       fetchScene(sceneId)
-        .then((scene) => {
-          if (scene && scene.files && scene.files.length > 0) {
-            const c = scene.files[0].video_codec || null;
-            LOG("Scene", sceneId, "codec:", c);
-            setCodec(c);
-          } else {
-            WARN("Scene", sceneId, "returned no files");
-          }
-        })
-        .catch((e) => WARN("fetchScene error:", e))
-        .finally(() => setLoading(false));
+          .then((scene) => {
+            if (scene && scene.files && scene.files.length > 0) {
+              const c = scene.files[0].video_codec || null;
+              LOG("Scene", sceneId, "codec:", c);
+              setCodec(c);
+            } else {
+              WARN("Scene", sceneId, "returned no files");
+            }
+          })
+          .catch((e) => WARN("fetchScene error:", e))
+          .finally(() => setLoading(false));
     }, [sceneId]);
 
     if (loading || !codec) return null;
 
     const cls = codecClass(codec);
     const label = codecLabel(codec);
-    const isH264 = cls === "codec-h264";
 
-    const title = isH264
-      ? "Click to transcode to H.265"
-      : cls === "codec-h265" ? "Already H.265" : "Codec not supported";
+    const title = "Click to open transcode tools";
 
     return ce(
-      "span",
-      {
-        className: `stash-transcode-badge ${cls}`,
-        onClick: () => isH264 && onTranscodeClick && onTranscodeClick(sceneId),
-        title,
-      },
-      ce("span", { className: "codec-dot" }),
-      label
+        "span",
+        {
+          className: `stash-transcode-badge ${cls} st-clickable`,
+          onClick: () => onTranscodeClick && onTranscodeClick(sceneId),
+          title,
+        },
+        ce("span", { className: "codec-dot" }),
+        label
     );
   }
 
@@ -200,7 +197,7 @@
     LOG("the element containing the scene name, then note its class/tag.");
   }
 
-  window.MRStashTranscode = { diagnose };
+  window.MRStashTranscode = { diagnose, openModal: (id) => openToolModal(id) };
 
   // ── Batch Modal ────────────────────────────────────────────────────────────────
 
@@ -234,11 +231,11 @@
 
     useEffect(() => {
       gqlQuery("query { configuration { plugins } }")
-        .then(d => {
-          const cfg = d.configuration && d.configuration.plugins && d.configuration.plugins.MRStashTranscode;
-          if (cfg && cfg.target_tag) setTagName(cfg.target_tag);
-        })
-        .catch(() => {});
+          .then(d => {
+            const cfg = d.configuration && d.configuration.plugins && d.configuration.plugins.MRStashTranscode;
+            if (cfg && cfg.target_tag) setTagName(cfg.target_tag);
+          })
+          .catch(() => {});
       document.body.style.overflow = "hidden";
       return () => { document.body.style.overflow = ""; };
     }, []);
@@ -248,21 +245,21 @@
       setLoading(true); setError(null); setScenes(null);
       try {
         const tagData = await gqlQuery(
-          `query FindTag($name: String!) { findTags(filter: {q: $name}) { tags { id name } } }`,
-          { name: tagName.trim() }
+            `query FindTag($name: String!) { findTags(filter: {q: $name}) { tags { id name } } }`,
+            { name: tagName.trim() }
         );
         const tags = (tagData.findTags.tags || []).filter(t => t.name.toLowerCase() === tagName.trim().toLowerCase());
         if (!tags.length) { setError(`Tag "${tagName}" not found.`); setLoading(false); return; }
         const sceneData = await gqlQuery(
-          `query FindScenes($tag_id: ID!) {
+            `query FindScenes($tag_id: ID!) {
             findScenes(filter: {per_page: -1}, scene_filter: {tags: {value: [$tag_id], modifier: INCLUDES}}) {
               scenes { id title files { video_codec size duration } }
             }
           }`,
-          { tag_id: tags[0].id }
+            { tag_id: tags[0].id }
         );
         const h264 = (sceneData.findScenes.scenes || []).filter(s =>
-          s.files && s.files[0] && ["h264","avc"].includes((s.files[0].video_codec||"").toLowerCase())
+            s.files && s.files[0] && ["h264","avc"].includes((s.files[0].video_codec||"").toLowerCase())
         );
         setScenes(h264);
       } catch(e) { setError(e.message); }
@@ -310,8 +307,8 @@
                   if (pRes.ok) {
                     const p = await pRes.json();
                     const eta = p.eta_secs != null
-                      ? (p.eta_secs > 60 ? `${Math.floor(p.eta_secs/60)}m ${p.eta_secs%60}s` : `${p.eta_secs}s`)
-                      : "…";
+                        ? (p.eta_secs > 60 ? `${Math.floor(p.eta_secs/60)}m ${p.eta_secs%60}s` : `${p.eta_secs}s`)
+                        : "…";
                     setStatusMsg(`${i+1}/${scenes.length}: ${title} — ${p.pct||0}% ETA ${eta}`);
                   }
                 } catch(_) {}
@@ -340,93 +337,93 @@
     const crfLabel = c => c<=20?"near-lossless":c<=24?"high quality":c<=28?"balanced":c<=32?"smaller":"aggressive";
 
     return ce("div", { className: "st-modal-overlay", onClick: e => { if (e.target===e.currentTarget) onClose(); } },
-      ce("div", { className: "st-modal-box" },
-        ce("div", { className: "st-modal-header" },
-          ce("h2", null, "Batch Transcode"),
-          ce("button", { className: "st-modal-close", onClick: onClose }, "✕")
-        ),
-        ce("div", { className: "st-subtitle" }, "Find all H.264 scenes with a tag and transcode them to H.265."),
-
-        // CRF
-        ce("div", { style: { marginBottom: 20, display: "flex", alignItems: "center", gap: 12 } },
-          ce("label", { style: { fontSize: 12, color: "#888", whiteSpace: "nowrap" } }, "CRF:"),
-          ce("input", { type: "range", min: 18, max: 35, value: crf,
-            onChange: e => setCrf(Number(e.target.value)),
-            style: { flex: 1, accentColor: "#ffb700" } }),
-          ce("span", { style: { fontSize: 13, color: "#ffb700", fontWeight: 700, minWidth: 28 } }, crf),
-          ce("span", { style: { fontSize: 11, color: "#555" } }, crfLabel(crf))
-        ),
-
-        // Tag input
-        ce("div", { style: { marginBottom: 20 } },
-          ce("label", { style: { display: "block", fontSize: 12, color: "#888", marginBottom: 6 } }, "Tag Name"),
-          ce("div", { style: { display: "flex", gap: 8 } },
-            ce("input", { type: "text", value: tagName,
-              onChange: e => { setTagName(e.target.value); setScenes(null); },
-              onKeyDown: e => e.key === "Enter" && handleFindScenes(),
-              placeholder: "e.g. transcode-me",
-              style: { flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)",
-                borderRadius: 5, color: "#ddd", padding: "7px 12px", fontSize: 13 } }),
-            ce("button", { className: "st-btn st-btn-secondary",
-              onClick: handleFindScenes, disabled: loading || !tagName.trim() },
-              loading ? "Searching…" : "Find Scenes")
-          ),
-          error && ce("div", { style: { color: "#f44336", fontSize: 13, marginTop: 8 } }, error)
-        ),
-
-        // Results
-        scenes && scenes.length === 0 && ce("div", { className: "st-status" }, "No H.264 scenes found with that tag."),
-        scenes && scenes.length > 0 && ce("div", { className: "st-dryrun-results", style: { marginBottom: 20 } },
-          ce("h3", null, `${scenes.length} H.264 scene${scenes.length!==1?"s":""} found`),
-          ce("div", { className: "st-dryrun-grid" },
-            ce("div", { className: "st-dryrun-stat" },
-              ce("div", { className: "stat-label" }, "Total Size"),
-              ce("div", { className: "stat-value" }, fmtSize(totalSize)),
-              ce("div", { className: "stat-sub" }, "h264 originals")
+        ce("div", { className: "st-modal-box" },
+            ce("div", { className: "st-modal-header" },
+                ce("h2", null, "Batch Transcode"),
+                ce("button", { className: "st-modal-close", onClick: onClose }, "✕")
             ),
-            ce("div", { className: "st-dryrun-stat" },
-              ce("div", { className: "stat-label" }, "Total Duration"),
-              ce("div", { className: "stat-value" }, fmtDur(totalDur))
+            ce("div", { className: "st-subtitle" }, "Find all H.264 scenes with a tag and transcode them to H.265."),
+
+            // CRF
+            ce("div", { style: { marginBottom: 20, display: "flex", alignItems: "center", gap: 12 } },
+                ce("label", { style: { fontSize: 12, color: "#888", whiteSpace: "nowrap" } }, "CRF:"),
+                ce("input", { type: "range", min: 18, max: 35, value: crf,
+                  onChange: e => setCrf(Number(e.target.value)),
+                  style: { flex: 1, accentColor: "#ffb700" } }),
+                ce("span", { style: { fontSize: 13, color: "#ffb700", fontWeight: 700, minWidth: 28 } }, crf),
+                ce("span", { style: { fontSize: 11, color: "#555" } }, crfLabel(crf))
             ),
-            ce("div", { className: "st-dryrun-stat" },
-              ce("div", { className: "stat-label" }, "CRF"),
-              ce("div", { className: "stat-value" }, crf),
-              ce("div", { className: "stat-sub" }, crfLabel(crf))
+
+            // Tag input
+            ce("div", { style: { marginBottom: 20 } },
+                ce("label", { style: { display: "block", fontSize: 12, color: "#888", marginBottom: 6 } }, "Tag Name"),
+                ce("div", { style: { display: "flex", gap: 8 } },
+                    ce("input", { type: "text", value: tagName,
+                      onChange: e => { setTagName(e.target.value); setScenes(null); },
+                      onKeyDown: e => e.key === "Enter" && handleFindScenes(),
+                      placeholder: "e.g. transcode-me",
+                      style: { flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)",
+                        borderRadius: 5, color: "#ddd", padding: "7px 12px", fontSize: 13 } }),
+                    ce("button", { className: "st-btn st-btn-secondary",
+                          onClick: handleFindScenes, disabled: loading || !tagName.trim() },
+                        loading ? "Searching…" : "Find Scenes")
+                ),
+                error && ce("div", { style: { color: "#f44336", fontSize: 13, marginTop: 8 } }, error)
+            ),
+
+            // Results
+            scenes && scenes.length === 0 && ce("div", { className: "st-status" }, "No H.264 scenes found with that tag."),
+            scenes && scenes.length > 0 && ce("div", { className: "st-dryrun-results", style: { marginBottom: 20 } },
+                ce("h3", null, `${scenes.length} H.264 scene${scenes.length!==1?"s":""} found`),
+                ce("div", { className: "st-dryrun-grid" },
+                    ce("div", { className: "st-dryrun-stat" },
+                        ce("div", { className: "stat-label" }, "Total Size"),
+                        ce("div", { className: "stat-value" }, fmtSize(totalSize)),
+                        ce("div", { className: "stat-sub" }, "h264 originals")
+                    ),
+                    ce("div", { className: "st-dryrun-stat" },
+                        ce("div", { className: "stat-label" }, "Total Duration"),
+                        ce("div", { className: "stat-value" }, fmtDur(totalDur))
+                    ),
+                    ce("div", { className: "st-dryrun-stat" },
+                        ce("div", { className: "stat-label" }, "CRF"),
+                        ce("div", { className: "stat-value" }, crf),
+                        ce("div", { className: "stat-sub" }, crfLabel(crf))
+                    )
+                ),
+                ce("div", { style: { marginTop: 12, maxHeight: 180, overflowY: "auto" } },
+                    scenes.map(s => ce("div", { key: s.id,
+                          style: { fontSize: 12, color: "#888", padding: "3px 0", borderBottom: "1px solid rgba(255,255,255,0.05)" } },
+                        ce("span", { style: { color: "#bbb" } }, s.title || `Scene #${s.id}`),
+                        " — ", s.files&&s.files[0] ? fmtSize(s.files[0].size) : "?"
+                    ))
+                )
+            ),
+
+            // Progress
+            phase === "running" && ce("div", { style: { marginBottom: 16 } },
+                ce("div", { className: "st-status running" }, statusMsg),
+                ce("div", { className: "st-progress-bar-wrap" },
+                    ce("div", { className: "st-progress-bar", style: {
+                        width: progress.total > 0 ? Math.max(2, progress.done/progress.total*100)+"%" : "2%"
+                      }})
+                ),
+                ce("div", { style: { fontSize: 11, color: "#555", marginTop: 4 } }, `${progress.done} of ${progress.total} complete`)
+            ),
+            phase === "done" && ce("div", { className: "st-status success", style: { marginBottom: 16 } }, statusMsg),
+
+            // Actions
+            ce("div", { className: "st-actions" },
+                phase === "idle" && scenes && scenes.length > 0 &&
+                ce("button", { className: "st-btn st-btn-primary", onClick: handleBatch },
+                    `Transcode ${scenes.length} Scene${scenes.length!==1?"s":""}`),
+                phase === "running" &&
+                ce("button", { className: "st-btn st-btn-secondary", onClick: () => cancelRef.current && cancelRef.current() },
+                    "Cancel (finishes current scene)"),
+                phase === "done" &&
+                ce("button", { className: "st-btn st-btn-secondary", onClick: onClose }, "Close")
             )
-          ),
-          ce("div", { style: { marginTop: 12, maxHeight: 180, overflowY: "auto" } },
-            scenes.map(s => ce("div", { key: s.id,
-              style: { fontSize: 12, color: "#888", padding: "3px 0", borderBottom: "1px solid rgba(255,255,255,0.05)" } },
-              ce("span", { style: { color: "#bbb" } }, s.title || `Scene #${s.id}`),
-              " — ", s.files&&s.files[0] ? fmtSize(s.files[0].size) : "?"
-            ))
-          )
-        ),
-
-        // Progress
-        phase === "running" && ce("div", { style: { marginBottom: 16 } },
-          ce("div", { className: "st-status running" }, statusMsg),
-          ce("div", { className: "st-progress-bar-wrap" },
-            ce("div", { className: "st-progress-bar", style: {
-              width: progress.total > 0 ? Math.max(2, progress.done/progress.total*100)+"%" : "2%"
-            }})
-          ),
-          ce("div", { style: { fontSize: 11, color: "#555", marginTop: 4 } }, `${progress.done} of ${progress.total} complete`)
-        ),
-        phase === "done" && ce("div", { className: "st-status success", style: { marginBottom: 16 } }, statusMsg),
-
-        // Actions
-        ce("div", { className: "st-actions" },
-          phase === "idle" && scenes && scenes.length > 0 &&
-            ce("button", { className: "st-btn st-btn-primary", onClick: handleBatch },
-              `Transcode ${scenes.length} Scene${scenes.length!==1?"s":""}`),
-          phase === "running" &&
-            ce("button", { className: "st-btn st-btn-secondary", onClick: () => cancelRef.current && cancelRef.current() },
-              "Cancel (finishes current scene)"),
-          phase === "done" &&
-            ce("button", { className: "st-btn st-btn-secondary", onClick: onClose }, "Close")
         )
-      )
     );
   }
 
@@ -444,10 +441,10 @@
 
     // Target the right-side button group
     const target =
-      navbar.querySelector(".navbar-buttons") ||
-      navbar.querySelector(".ml-auto.navbar-nav") ||
-      navbar.querySelector(".navbar-nav:last-child") ||
-      navbar;
+        navbar.querySelector(".navbar-buttons") ||
+        navbar.querySelector(".ml-auto.navbar-nav") ||
+        navbar.querySelector(".navbar-nav:last-child") ||
+        navbar;
 
     LOG("Right side target:", target.className);
 
@@ -481,11 +478,11 @@
 
   function BatchToolEntry() {
     return ce("div", { style: { marginTop: 24, paddingTop: 24, borderTop: "1px solid rgba(255,255,255,0.08)" } },
-      ce("h3", { style: { fontSize: 16, fontWeight: 600, color: "#eee", marginBottom: 4 } }, "MRStashTranscode"),
-      ce("p", { style: { fontSize: 13, color: "#777", marginBottom: 12 } },
-        "Transcode H.264 scenes to H.265 in bulk. Set your target tag in Settings → Plugins → MRStashTranscode."
-      ),
-      ce("button", { className: "st-btn st-btn-primary", onClick: openBatchModal }, "Open Batch Transcode")
+        ce("h3", { style: { fontSize: 16, fontWeight: 600, color: "#eee", marginBottom: 4 } }, "MRStashTranscode"),
+        ce("p", { style: { fontSize: 13, color: "#777", marginBottom: 12 } },
+            "Transcode H.264 scenes to H.265 in bulk. Set your target tag in Settings → Plugins → MRStashTranscode."
+        ),
+        ce("button", { className: "st-btn st-btn-primary", onClick: openBatchModal }, "Open Batch Transcode")
     );
   }
 
@@ -540,8 +537,8 @@
       LOG("injectBadge: mount point created, rendering CodecBadge");
 
       ReactDOM.render(
-        ce(CodecBadge, { sceneId, onTranscodeClick: openToolModal }),
-        mount
+          ce(CodecBadge, { sceneId, onTranscodeClick: openToolModal }),
+          mount
       );
     }, 100);
   }
@@ -597,8 +594,8 @@
       document.body.appendChild(_modalRoot);
     }
     ReactDOM.render(
-      ce(TranscodeModal, { sceneId: String(sceneId), onClose: closeToolModal }),
-      _modalRoot
+        ce(TranscodeModal, { sceneId: String(sceneId), onClose: closeToolModal }),
+        _modalRoot
     );
   }
 
@@ -618,6 +615,10 @@
     const [transcodeProgress, setTranscodeProgress] = useState(0);
     const [dryRunResults, setDryRunResults] = useState(null);
     const [statusMsg, setStatusMsg] = useState("");
+    const [copyToNew, setCopyToNew] = useState(true);
+    const [targetCodec, setTargetCodec] = useState("h265");
+    const [probeResult, setProbeResult] = useState(null);
+    const [probing, setProbing] = useState(false);
     const cancelRef = useRef(null);
 
     useEffect(() => {
@@ -632,10 +633,63 @@
       setScene(null);
       setPhase("idle");
       setDryRunResults(null);
+      setProbeResult(null);
       fetchScene(id)
-        .then((s) => { if (!s) setSceneError(`No scene #${id}`); else setScene(s); })
-        .catch((e) => setSceneError(e.message))
-        .finally(() => setLoadingScene(false));
+          .then((s) => { if (!s) setSceneError(`No scene #${id}`); else setScene(s); })
+          .catch((e) => setSceneError(e.message))
+          .finally(() => setLoadingScene(false));
+    }
+
+    // Poll for probe_<id>.json the same way dry-run results are polled.
+    function pollProbeResults(sceneId, onResult, onError, onTick) {
+      const base = `/plugin/MRStashTranscode/assets/probe_${sceneId}.json`;
+      let attempts = 0;
+      const limit = 120; // 60s at 500ms — ffprobe is fast, but the file may be remote
+      const iv = setInterval(async () => {
+        attempts++;
+        onTick && onTick(attempts);
+        try {
+          const res = await fetch(base + `?t=${Date.now()}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (String(data.scene_id) !== String(sceneId)) return; // stale
+            if (data.status === "done") { clearInterval(iv); onResult(data); }
+            else if (data.status === "error") { clearInterval(iv); onError(data.error || "Probe failed."); }
+          }
+        } catch (_) {}
+        if (attempts >= limit) { clearInterval(iv); onError("Timed out waiting for probe."); }
+      }, 500);
+      return () => clearInterval(iv);
+    }
+
+    async function handleProbe() {
+      if (!scene) return;
+      setProbing(true);
+      setProbeResult(null);
+      setStatusMsg("Probing file…");
+      try {
+        await runPluginTask("Probe", [
+          { key: "scene_id", value: { str: scene.id } },
+        ]);
+      } catch (e) {
+        setProbing(false);
+        setStatusMsg("Failed to start probe: " + e.message);
+        return;
+      }
+      pollProbeResults(
+          scene.id,
+          (data) => {
+            setProbeResult(data);
+            setProbing(false);
+            setStatusMsg("");
+            // Trust the live probe over the DB: if it reports a different family,
+            // pick a sensible default target so the user isn't fighting stale data.
+            const live = (data.live_codec || "").toLowerCase();
+            if (["h264", "avc"].includes(live)) setTargetCodec("h265");
+          },
+          (err) => { setProbing(false); setStatusMsg(err); },
+          (attempts) => { if (attempts % 2 === 0) setStatusMsg(`Probing… ${Math.round(attempts / 2)}s`); }
+      );
     }
 
     async function handleDryRun() {
@@ -655,10 +709,10 @@
         return;
       }
       const cancel = await pollDryRunResults(
-        scene.id,
-        (data) => { setDryRunResults(data); setPhase("dryrun-done"); setStatusMsg(""); },
-        (attempts) => { setStatusMsg(`Encoding sample… (${Math.round(attempts / 2)}s)`); },
-        (err) => { setPhase("error"); setStatusMsg(err); }
+          scene.id,
+          (data) => { setDryRunResults(data); setPhase("dryrun-done"); setStatusMsg(""); },
+          (attempts) => { setStatusMsg(`Encoding sample… (${Math.round(attempts / 2)}s)`); },
+          (err) => { setPhase("error"); setStatusMsg(err); }
       );
       cancelRef.current = cancel;
     }
@@ -668,10 +722,17 @@
       setPhase("transcoding");
       setStatusMsg("Transcode queued…");
 
+      // Prefer the live-probed codec over the DB value when we have one.
+      const sourceCodec = (probeResult && probeResult.live_codec) ||
+          (scene.files && scene.files[0] && scene.files[0].video_codec) || "";
+
       try {
         await runPluginTask("Transcode Scene", [
           { key: "scene_id", value: { str: scene.id } },
           { key: "crf", value: { str: String(crf) } },
+          { key: "target_codec", value: { str: targetCodec } },
+          { key: "copy_to_new", value: { str: copyToNew ? "true" : "false" } },
+          { key: "source_codec", value: { str: String(sourceCodec).toLowerCase() } },
         ]);
       } catch (e) {
         setPhase("error");
@@ -708,8 +769,8 @@
                     const p = await pRes.json();
                     const pct = p.pct || 0;
                     const eta = p.eta_secs != null ? (p.eta_secs > 60
-                      ? `${Math.floor(p.eta_secs / 60)}m ${p.eta_secs % 60}s`
-                      : `${p.eta_secs}s`) : "…";
+                        ? `${Math.floor(p.eta_secs / 60)}m ${p.eta_secs % 60}s`
+                        : `${p.eta_secs}s`) : "…";
                     const speed = p.speed ? `${parseFloat(p.speed).toFixed(2)}x` : "";
                     setStatusMsg(`Transcoding ${pct}% — ETA ${eta}${speed ? " @ " + speed : ""}`);
                     setTranscodeProgress(pct);
@@ -743,178 +804,256 @@
     }
 
     const file = scene && scene.files && scene.files[0];
-    const codec = file && file.video_codec ? file.video_codec.toLowerCase() : "";
-    const isH264 = codec === "h264" || codec === "avc";
+    const dbCodec = file && file.video_codec ? file.video_codec.toLowerCase() : "";
+    // The effective source codec trusts the live probe over the DB value.
+    const effectiveSource = (probeResult && probeResult.live_codec
+        ? probeResult.live_codec : dbCodec).toLowerCase();
+
+    function codecFamily(c) {
+      if (c === "h264" || c === "avc") return "h264";
+      if (c === "h265" || c === "hevc") return "h265";
+      return c;
+    }
+    const sameFamily = codecFamily(effectiveSource) === codecFamily(targetCodec);
 
     return ce("div", {
-      className: "st-modal-overlay",
-      onClick: (e) => { if (e.target === e.currentTarget) onClose(); },
-    },
-      ce("div", { className: "st-modal-box" },
-        ce("div", { className: "st-modal-header" },
-          ce("h2", null, "MRStashTranscode"),
-          ce("button", { className: "st-modal-close", onClick: onClose }, "✕")
-        ),
-        ce("div", { className: "st-subtitle" }, "Transcode H.264 → H.265. Run a dry run first."),
+          className: "st-modal-overlay",
+          onClick: (e) => { if (e.target === e.currentTarget) onClose(); },
+        },
+        ce("div", { className: "st-modal-box" },
+            ce("div", { className: "st-modal-header" },
+                ce("h2", null, "MRStashTranscode"),
+                ce("button", { className: "st-modal-close", onClick: onClose }, "✕")
+            ),
+            ce("div", { className: "st-subtitle" }, "Probe the file's real codec, then transcode — to a new file or in place."),
 
-        // CRF slider
-        ce("div", { style: { marginBottom: 20, display: "flex", alignItems: "center", gap: 12 } },
-          ce("label", { style: { fontSize: 12, color: "#888", whiteSpace: "nowrap" } }, "CRF (quality):"),
-          ce("input", {
-            type: "range", min: 18, max: 35, value: crf,
-            onChange: (e) => { setCrf(Number(e.target.value)); setDryRunResults(null); setPhase("idle"); },
-            style: { flex: 1, accentColor: "#ffb700" },
-          }),
-          ce("span", { style: { fontSize: 13, color: "#ffb700", fontWeight: 700, minWidth: 28, textAlign: "right" } }, crf),
-          ce("span", { style: { fontSize: 11, color: "#555", whiteSpace: "nowrap" } },
-            crf <= 20 ? "near-lossless" : crf <= 24 ? "high quality" : crf <= 28 ? "balanced" : crf <= 32 ? "smaller file" : "aggressive"
-          )
-        ),
+            // CRF slider
+            ce("div", { style: { marginBottom: 20, display: "flex", alignItems: "center", gap: 12 } },
+                ce("label", { style: { fontSize: 12, color: "#888", whiteSpace: "nowrap" } }, "CRF (quality):"),
+                ce("input", {
+                  type: "range", min: 18, max: 35, value: crf,
+                  onChange: (e) => { setCrf(Number(e.target.value)); setDryRunResults(null); setPhase("idle"); },
+                  style: { flex: 1, accentColor: "#ffb700" },
+                }),
+                ce("span", { style: { fontSize: 13, color: "#ffb700", fontWeight: 700, minWidth: 28, textAlign: "right" } }, crf),
+                ce("span", { style: { fontSize: 11, color: "#555", whiteSpace: "nowrap" } },
+                    crf <= 20 ? "near-lossless" : crf <= 24 ? "high quality" : crf <= 28 ? "balanced" : crf <= 32 ? "smaller file" : "aggressive"
+                )
+            ),
 
-        ce("div", { style: { marginBottom: 20 } },
-          ce("label", { style: { display: "block", fontSize: 12, color: "#888", marginBottom: 6 } }, "Scene ID"),
-          ce("div", { style: { display: "flex", gap: 8 } },
-            ce("input", {
-              type: "text", value: sceneIdInput,
-              onChange: (e) => setSceneIdInput(e.target.value),
-              onKeyDown: (e) => e.key === "Enter" && loadScene(sceneIdInput.trim()),
-              placeholder: "e.g. 42",
-              style: {
-                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)",
-                borderRadius: 5, color: "#ddd", padding: "7px 12px", fontSize: 13, width: 140,
-              },
-            }),
-            ce("button", {
-              className: "st-btn st-btn-secondary",
-              onClick: () => loadScene(sceneIdInput.trim()),
-              disabled: loadingScene,
-            }, loadingScene ? "Loading…" : "Load Scene")
-          ),
-          sceneError && ce("div", { style: { color: "#f44336", fontSize: 13, marginTop: 8 } }, sceneError)
-        ),
+            ce("div", { style: { marginBottom: 20 } },
+                ce("label", { style: { display: "block", fontSize: 12, color: "#888", marginBottom: 6 } }, "Scene ID"),
+                ce("div", { style: { display: "flex", gap: 8 } },
+                    ce("input", {
+                      type: "text", value: sceneIdInput,
+                      onChange: (e) => setSceneIdInput(e.target.value),
+                      onKeyDown: (e) => e.key === "Enter" && loadScene(sceneIdInput.trim()),
+                      placeholder: "e.g. 42",
+                      style: {
+                        background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)",
+                        borderRadius: 5, color: "#ddd", padding: "7px 12px", fontSize: 13, width: 140,
+                      },
+                    }),
+                    ce("button", {
+                      className: "st-btn st-btn-secondary",
+                      onClick: () => loadScene(sceneIdInput.trim()),
+                      disabled: loadingScene,
+                    }, loadingScene ? "Loading…" : "Load Scene")
+                ),
+                sceneError && ce("div", { style: { color: "#f44336", fontSize: 13, marginTop: 8 } }, sceneError)
+            ),
 
-        scene && ce("div", { className: "st-scene-card" },
-          scene.paths && scene.paths.screenshot ? ce("img", { src: scene.paths.screenshot, alt: "" }) : null,
-          ce("div", { className: "st-scene-info" },
-            ce("div", { className: "st-scene-title" }, scene.title || `Scene #${scene.id}`),
-            ce("div", { className: "st-scene-meta" },
-              file && ce("div", { className: "st-meta-item" }, "Codec: ", ce("span", null, codecLabel(file.video_codec))),
-              file && ce("div", { className: "st-meta-item" }, "Res: ", ce("span", null, `${file.width}×${file.height}`)),
-              file && ce("div", { className: "st-meta-item" }, "Size: ", ce("span", null, formatBytes(file.size))),
-              file && ce("div", { className: "st-meta-item" }, "Duration: ", ce("span", null, formatDuration(file.duration)))
-            )
-          )
-        ),
+            scene && ce("div", { className: "st-scene-card" },
+                scene.paths && scene.paths.screenshot ? ce("img", { src: scene.paths.screenshot, alt: "" }) : null,
+                ce("div", { className: "st-scene-info" },
+                    ce("div", { className: "st-scene-title" }, scene.title || `Scene #${scene.id}`),
+                    ce("div", { className: "st-scene-meta" },
+                        file && ce("div", { className: "st-meta-item" }, "Codec: ", ce("span", null, codecLabel(file.video_codec))),
+                        file && ce("div", { className: "st-meta-item" }, "Res: ", ce("span", null, `${file.width}×${file.height}`)),
+                        file && ce("div", { className: "st-meta-item" }, "Size: ", ce("span", null, formatBytes(file.size))),
+                        file && ce("div", { className: "st-meta-item" }, "Duration: ", ce("span", null, formatDuration(file.duration)))
+                    )
+                )
+            ),
 
-        phase === "error" && statusMsg
-          ? ce("div", { className: "st-status error", style: { marginBottom: 16 } }, statusMsg) : null,
+            // ── Probe + options ──────────────────────────────────────────────
+            scene && ce("div", { className: "st-options" },
+                ce("div", { className: "st-options-row" },
+                    ce("button", {
+                      className: "st-btn st-btn-secondary",
+                      onClick: handleProbe,
+                      disabled: probing,
+                    }, probing ? "Probing…" : "Probe Codec"),
+                    probing && ce("span", { className: "st-status running", style: { fontSize: 12 } }, statusMsg)
+                ),
 
-        dryRunResults && ce("div", { className: "st-dryrun-results" },
-          ce("h3", null, "Dry Run Estimate"),
-          ce("div", { className: "st-dryrun-grid" },
-            ce("div", { className: "st-dryrun-stat" },
-              ce("div", { className: "stat-label" }, "Original"),
-              ce("div", { className: "stat-value" }, formatBytes(dryRunResults.original_size)),
-              ce("div", { className: "stat-sub" }, dryRunResults.original_codec || "h264")
-            ),
-            ce("div", { className: "st-dryrun-stat" },
-              ce("div", { className: "stat-label" }, "Estimated"),
-              ce("div", { className: "stat-value" }, formatBytes(dryRunResults.estimated_size)),
-              ce("div", { className: "stat-sub" }, `h265 @ CRF ${dryRunResults.crf || crf}`)
-            ),
-            ce("div", { className: "st-dryrun-stat" },
-              ce("div", { className: "stat-label" }, "Savings"),
-              ce("div", { className: `stat-value ${dryRunResults.saving_percent < 0 ? "st-larger" : "st-saving"}` },
-                (dryRunResults.saving_percent < 0 ? "+" : "-") + Math.abs(dryRunResults.saving_percent).toFixed(1) + "%"
-              ),
-              ce("div", { className: "stat-sub" }, dryRunResults.saving_percent < 0 ? "larger" : "smaller")
-            ),
-            dryRunResults.sample_encode_time && ce("div", { className: "st-dryrun-stat" },
-              ce("div", { className: "stat-label" }, "Sample Time"),
-              ce("div", { className: "stat-value" }, dryRunResults.sample_encode_time + "s"),
-              ce("div", { className: "stat-sub" }, "30s sample")
-            ),
-            dryRunResults.src_kbps && ce("div", { className: "st-dryrun-stat" },
-              ce("div", { className: "stat-label" }, "Source Bitrate"),
-              ce("div", { className: "stat-value" }, Math.round(dryRunResults.src_kbps / 1000) + " Mbps"),
-              ce("div", { className: "stat-sub" }, "h264 video track")
-            ),
-            dryRunResults.out_kbps && ce("div", { className: "st-dryrun-stat" },
-              ce("div", { className: "stat-label" }, "Output Bitrate"),
-              ce("div", { className: "stat-value" }, Math.round(dryRunResults.out_kbps / 1000) + " Mbps"),
-              ce("div", { className: "stat-sub" }, `h265 CRF ${dryRunResults.crf || crf}`)
-            )
-          ),
-          dryRunResults.before_thumb && dryRunResults.after_thumb && ce(React.Fragment, null,
-            ce("div", { className: "st-compare", style: { marginTop: 16 } },
-              ce("div", { className: "st-compare-panel panel-before" },
-                ce("div", { className: "st-compare-label" }, "H.264 — Original"),
-                ce("img", {
-                  src: `/plugin/MRStashTranscode/assets/${dryRunResults.before_thumb}?t=${Date.now()}`,
-                  alt: "before",
-                  style: { cursor: "pointer" },
-                  onClick: (e) => e.target.requestFullscreen && e.target.requestFullscreen(),
-                })
-              ),
-              ce("div", { className: "st-compare-panel panel-after" },
-                ce("div", { className: "st-compare-label" }, "H.265 — Sample"),
-                ce("img", {
-                  src: `/plugin/MRStashTranscode/assets/${dryRunResults.after_thumb}?t=${Date.now()}`,
-                  alt: "after",
-                  style: { cursor: "pointer" },
-                  onClick: (e) => e.target.requestFullscreen && e.target.requestFullscreen(),
-                })
-              )
-            ),
-            ce("div", { style: { fontSize: 11, color: "#555", marginTop: 8, lineHeight: 1.5 } },
-              "Click either image to fullscreen. ",
-              (() => {
-                const c = dryRunResults.crf || crf;
-                if (c <= 20) return "CRF " + c + " — near-lossless, virtually no quality loss.";
-                if (c <= 24) return "CRF " + c + " — high quality, transparent to most viewers.";
-                if (c <= 28) return "CRF " + c + " — good quality, minor loss in fast motion or fine grain.";
-                if (c <= 32) return "CRF " + c + " — noticeable on large/VR screens, especially dark scenes.";
-                return "CRF " + c + " — aggressive compression, visible softness likely on a VR headset.";
-              })()
-            )
-          )
-        ),
+                // Live probe result — flags a mismatch against the Stash DB value.
+                probeResult && probeResult.status === "done" && ce("div", {
+                      className: "st-probe-result" + (probeResult.mismatch ? " st-probe-mismatch" : ""),
+                    },
+                    ce("div", { className: "st-probe-line" },
+                        ce("span", { className: "st-probe-key" }, "ffprobe (live):"),
+                        ce("span", { className: "st-probe-val" },
+                            codecLabel(probeResult.live_codec),
+                            probeResult.width && probeResult.height
+                                ? `  •  ${probeResult.width}×${probeResult.height}` : ""
+                        )
+                    ),
+                    ce("div", { className: "st-probe-line" },
+                        ce("span", { className: "st-probe-key" }, "Stash DB:"),
+                        ce("span", { className: "st-probe-val" }, codecLabel(probeResult.db_codec))
+                    ),
+                    probeResult.mismatch && ce("div", { className: "st-probe-warn" },
+                        "⚠ Live codec differs from Stash's record. The transcode will trust the live value."
+                    )
+                ),
+                probeResult && probeResult.status === "error" && ce("div", {
+                  className: "st-status error", style: { fontSize: 12, marginTop: 8 },
+                }, probeResult.error || "Probe failed."),
 
-        scene && (() => {
-          if (!isH264) return ce("div", { className: "st-status" }, `This scene is ${codecLabel(codec)} — only H.264 can be transcoded.`);
-          if (phase === "idle" || phase === "error") return ce("div", { className: "st-actions" },
-            ce("button", { className: "st-btn st-btn-primary", onClick: handleDryRun }, "Dry Run")
-          );
-          if (phase === "dryrun-running") return ce("div", null,
-            ce("div", { className: "st-status running" }, statusMsg),
-            ce("div", { className: "st-progress-bar-wrap" }, ce("div", { className: "st-progress-bar", style: { width: "40%" } })),
-            ce("div", { className: "st-actions", style: { marginTop: 8 } },
-              ce("button", { className: "st-btn st-btn-secondary", onClick: handleReset }, "Cancel")
-            )
-          );
-          if (phase === "dryrun-done") return ce("div", { className: "st-actions" },
-            ce("button", { className: "st-btn st-btn-primary", onClick: handleTranscode }, "Transcode Now"),
-            ce("button", { className: "st-btn st-btn-secondary", onClick: handleDryRun }, "Re-run"),
-            ce("button", { className: "st-btn st-btn-danger", onClick: handleReset }, "Cancel")
-          );
-          if (phase === "transcoding") return ce("div", null,
-            ce("div", { className: "st-status running" }, statusMsg),
-            ce("div", { className: "st-progress-bar-wrap" },
-              ce("div", { className: "st-progress-bar", style: { width: (transcodeProgress || 2) + "%" } })
+                // Target codec + copy-to-new
+                ce("div", { className: "st-options-row", style: { marginTop: 14, gap: 18, flexWrap: "wrap" } },
+                    ce("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                        ce("label", { style: { fontSize: 12, color: "#888" } }, "Target codec:"),
+                        ce("select", {
+                              value: targetCodec,
+                              onChange: (e) => { setTargetCodec(e.target.value); setDryRunResults(null); setPhase("idle"); },
+                              className: "st-select",
+                            },
+                            ce("option", { value: "h265" }, "H.265 (HEVC)"),
+                            ce("option", { value: "h264" }, "H.264 (AVC)"),
+                            ce("option", { value: "av1" }, "AV1")
+                        )
+                    ),
+                    ce("label", { className: "st-checkbox" },
+                        ce("input", {
+                          type: "checkbox",
+                          checked: copyToNew,
+                          onChange: (e) => setCopyToNew(e.target.checked),
+                        }),
+                        ce("span", null, "Copy to new file"),
+                        ce("span", { className: "st-checkbox-hint" },
+                            copyToNew
+                                ? "→ new file, name appended with resolution + codec"
+                                : "→ overwrites the original in place (keeps the Stash file ID)")
+                    )
+                )
             ),
-            ce("div", { className: "st-actions", style: { marginTop: 8 } },
-              ce("button", { className: "st-btn st-btn-secondary", onClick: handleReset }, "Hide (task continues in background)")
-            )
-          );
-          if (phase === "done") return ce("div", null,
-            ce("div", { className: "st-status success" }, statusMsg),
-            ce("div", { className: "st-actions", style: { marginTop: 12 } },
-              ce("button", { className: "st-btn st-btn-secondary", onClick: handleReset }, "Transcode Another")
-            )
-          );
-          return null;
-        })()
-      )
+
+            phase === "error" && statusMsg
+                ? ce("div", { className: "st-status error", style: { marginBottom: 16 } }, statusMsg) : null,
+
+            dryRunResults && ce("div", { className: "st-dryrun-results" },
+                ce("h3", null, "Dry Run Estimate"),
+                ce("div", { className: "st-dryrun-grid" },
+                    ce("div", { className: "st-dryrun-stat" },
+                        ce("div", { className: "stat-label" }, "Original"),
+                        ce("div", { className: "stat-value" }, formatBytes(dryRunResults.original_size)),
+                        ce("div", { className: "stat-sub" }, dryRunResults.original_codec || "h264")
+                    ),
+                    ce("div", { className: "st-dryrun-stat" },
+                        ce("div", { className: "stat-label" }, "Estimated"),
+                        ce("div", { className: "stat-value" }, formatBytes(dryRunResults.estimated_size)),
+                        ce("div", { className: "stat-sub" }, `h265 @ CRF ${dryRunResults.crf || crf}`)
+                    ),
+                    ce("div", { className: "st-dryrun-stat" },
+                        ce("div", { className: "stat-label" }, "Savings"),
+                        ce("div", { className: `stat-value ${dryRunResults.saving_percent < 0 ? "st-larger" : "st-saving"}` },
+                            (dryRunResults.saving_percent < 0 ? "+" : "-") + Math.abs(dryRunResults.saving_percent).toFixed(1) + "%"
+                        ),
+                        ce("div", { className: "stat-sub" }, dryRunResults.saving_percent < 0 ? "larger" : "smaller")
+                    ),
+                    dryRunResults.sample_encode_time && ce("div", { className: "st-dryrun-stat" },
+                        ce("div", { className: "stat-label" }, "Sample Time"),
+                        ce("div", { className: "stat-value" }, dryRunResults.sample_encode_time + "s"),
+                        ce("div", { className: "stat-sub" }, "30s sample")
+                    ),
+                    dryRunResults.src_kbps && ce("div", { className: "st-dryrun-stat" },
+                        ce("div", { className: "stat-label" }, "Source Bitrate"),
+                        ce("div", { className: "stat-value" }, Math.round(dryRunResults.src_kbps / 1000) + " Mbps"),
+                        ce("div", { className: "stat-sub" }, "h264 video track")
+                    ),
+                    dryRunResults.out_kbps && ce("div", { className: "st-dryrun-stat" },
+                        ce("div", { className: "stat-label" }, "Output Bitrate"),
+                        ce("div", { className: "stat-value" }, Math.round(dryRunResults.out_kbps / 1000) + " Mbps"),
+                        ce("div", { className: "stat-sub" }, `h265 CRF ${dryRunResults.crf || crf}`)
+                    )
+                ),
+                dryRunResults.before_thumb && dryRunResults.after_thumb && ce(React.Fragment, null,
+                    ce("div", { className: "st-compare", style: { marginTop: 16 } },
+                        ce("div", { className: "st-compare-panel panel-before" },
+                            ce("div", { className: "st-compare-label" }, "H.264 — Original"),
+                            ce("img", {
+                              src: `/plugin/MRStashTranscode/assets/${dryRunResults.before_thumb}?t=${Date.now()}`,
+                              alt: "before",
+                              style: { cursor: "pointer" },
+                              onClick: (e) => e.target.requestFullscreen && e.target.requestFullscreen(),
+                            })
+                        ),
+                        ce("div", { className: "st-compare-panel panel-after" },
+                            ce("div", { className: "st-compare-label" }, "H.265 — Sample"),
+                            ce("img", {
+                              src: `/plugin/MRStashTranscode/assets/${dryRunResults.after_thumb}?t=${Date.now()}`,
+                              alt: "after",
+                              style: { cursor: "pointer" },
+                              onClick: (e) => e.target.requestFullscreen && e.target.requestFullscreen(),
+                            })
+                        )
+                    ),
+                    ce("div", { style: { fontSize: 11, color: "#555", marginTop: 8, lineHeight: 1.5 } },
+                        "Click either image to fullscreen. ",
+                        (() => {
+                          const c = dryRunResults.crf || crf;
+                          if (c <= 20) return "CRF " + c + " — near-lossless, virtually no quality loss.";
+                          if (c <= 24) return "CRF " + c + " — high quality, transparent to most viewers.";
+                          if (c <= 28) return "CRF " + c + " — good quality, minor loss in fast motion or fine grain.";
+                          if (c <= 32) return "CRF " + c + " — noticeable on large/VR screens, especially dark scenes.";
+                          return "CRF " + c + " — aggressive compression, visible softness likely on a VR headset.";
+                        })()
+                    )
+                )
+            ),
+
+            scene && (() => {
+              const targetLabel = codecLabel(targetCodec);
+              if (sameFamily) return ce("div", { className: "st-status" },
+                  `Source is already ${codecLabel(effectiveSource)} — pick a different target codec to transcode.`);
+              if (phase === "idle" || phase === "error") return ce("div", { className: "st-actions" },
+                  ce("button", { className: "st-btn st-btn-primary", onClick: handleDryRun }, "Dry Run"),
+                  ce("button", { className: "st-btn st-btn-secondary", onClick: handleTranscode },
+                      `Transcode to ${targetLabel}`)
+              );
+              if (phase === "dryrun-running") return ce("div", null,
+                  ce("div", { className: "st-status running" }, statusMsg),
+                  ce("div", { className: "st-progress-bar-wrap" }, ce("div", { className: "st-progress-bar", style: { width: "40%" } })),
+                  ce("div", { className: "st-actions", style: { marginTop: 8 } },
+                      ce("button", { className: "st-btn st-btn-secondary", onClick: handleReset }, "Cancel")
+                  )
+              );
+              if (phase === "dryrun-done") return ce("div", { className: "st-actions" },
+                  ce("button", { className: "st-btn st-btn-primary", onClick: handleTranscode },
+                      `Transcode to ${targetLabel}`),
+                  ce("button", { className: "st-btn st-btn-secondary", onClick: handleDryRun }, "Re-run"),
+                  ce("button", { className: "st-btn st-btn-danger", onClick: handleReset }, "Cancel")
+              );
+              if (phase === "transcoding") return ce("div", null,
+                  ce("div", { className: "st-status running" }, statusMsg),
+                  ce("div", { className: "st-progress-bar-wrap" },
+                      ce("div", { className: "st-progress-bar", style: { width: (transcodeProgress || 2) + "%" } })
+                  ),
+                  ce("div", { className: "st-actions", style: { marginTop: 8 } },
+                      ce("button", { className: "st-btn st-btn-secondary", onClick: handleReset }, "Hide (task continues in background)")
+                  )
+              );
+              if (phase === "done") return ce("div", null,
+                  ce("div", { className: "st-status success" }, statusMsg),
+                  ce("div", { className: "st-actions", style: { marginTop: 12 } },
+                      ce("button", { className: "st-btn st-btn-secondary", onClick: handleReset }, "Transcode Another")
+                  )
+              );
+              return null;
+            })()
+        )
     );
   }
 })();

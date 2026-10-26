@@ -1,0 +1,77 @@
+name: MRStashDupManager
+description: >-
+  Detect duplicate scenes using Stash's built-in perceptual-hash (phash)
+  matching and review them side-by-side to keep the best copy and delete or
+  remove the rest.
+version: 1.1.0
+url: https://github.com/mrtoadx/MRStashDupManager
+
+# Serve the plugin's assets/ folder over HTTP so the UI can poll the
+# generated dup_status.json / dup_report.json at
+#   /plugin/MRStashDupManager/assets/<file>
+# Without this block the files are written to disk but return 404.
+# Serve the plugin's assets/ folder over HTTP so the UI can poll the
+# generated dup_status.json / dup_report.json. The assets map lives under
+# `ui` and maps a URL prefix to an on-disk folder (relative to this file).
+# The "/" prefix -> "assets" produces:
+#   /plugin/MRStashDupManager/assets/<file>  ->  {pluginDir}/assets/<file>
+# Without this the JSON is written to disk but returns 404.
+ui:
+  javascript:
+    - MRStashDupManager.js
+  css:
+    - MRStashDupManager.css
+  assets:
+    /: assets
+
+exec:
+  - python
+  - "{pluginDir}/MRStashDupManager.py"
+interface: raw
+
+settings:
+  accuracy:
+    displayName: Default Search Accuracy
+    description: >-
+      phash match strictness used when a scan is started from the Tasks menu.
+      Exact (distance 0), High (3), Medium (6), or Low (8). Higher = looser
+      matching / more candidates. The in-app UI lets you pick this per scan.
+    type: STRING
+  duration:
+    displayName: Default Duration Filter
+    description: >-
+      Only match scenes whose durations are within this window when scanning
+      from the Tasks menu. One of: Any, Equal, 1, 5, 10 (seconds). "Any"
+      disables the duration filter entirely. The in-app UI lets you pick this
+      per scan.
+    type: STRING
+  whitelist:
+    displayName: Whitelist Paths
+    description: >-
+      Comma/semicolon separated path fragments that should always be KEPT
+      (never marked for deletion).
+    type: STRING
+  graylist:
+    displayName: Gray-list Paths
+    description: >-
+      Comma/semicolon separated path fragments treated as secondary copies.
+    type: STRING
+  blacklist:
+    displayName: Blacklist Paths
+    description: >-
+      Comma/semicolon separated path fragments preferred for deletion first.
+    type: STRING
+
+tasks:
+  - name: Scan for Duplicates
+    description: >-
+      Build the duplicate report the review UI reads (uses the default accuracy
+      and duration settings above).
+    defaultArgs:
+      mode: Scan for Duplicates
+  - name: Tag Duplicates
+    description: >-
+      Apply the _DuplicateMarkForDeletion tag to the lower-quality copy in each
+      duplicate group, for review via Stash's normal library filters.
+    defaultArgs:
+      mode: Tag Duplicates

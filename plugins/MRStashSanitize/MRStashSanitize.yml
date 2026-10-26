@@ -1,0 +1,30 @@
+name: MRStashSanitize
+description: Detects tag-like tokens in filenames (_BigAss, #BlowJob, CamelCase, etc.), strips them, renames the file, and adds the corresponding Stash tags. Presents a batch review UI before applying any changes.
+version: 1.0.0
+exec:
+  - python3
+  - /root/.stash/plugins/MRStashSanitize/MRStashSanitize.py
+interface: raw
+tasks:
+  - name: Scan for Dirty Filenames
+    description: Scans all scenes for filenames containing tag-like tokens and writes a pending-changes report.
+    defaultArgs:
+      mode: Scan for Dirty Filenames
+  - name: Apply Sanitization
+    description: Applies accepted changes - renames files and updates scene tags. Triggered by the UI; do not run manually.
+    defaultArgs:
+      mode: Apply Sanitization
+ui:
+  javascript:
+    - MRStashSanitize.js
+  css:
+    - MRStashSanitize.css
+  assets:
+    /: assets/
+settings:
+  strip_unmatched_sigils:
+    displayName: Strip Unmatched Sigil Tokens
+    description: >
+      When enabled, tokens prefixed with _ or # that do not match any Stash tag
+      (e.g. _4K, #720p, _SomeJunk) are also removed from the filename. Default is true.
+    type: BOOLEAN

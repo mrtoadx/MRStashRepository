@@ -1,6 +1,6 @@
 name: MRStashTranscode
 description: Transcodes h264 scenes to h265. Adds a codec badge to scene pages with a one-click transcode workflow.
-version: 1.2.0
+version: 1.3.0
 exec:
   - python3
   - /root/.stash/plugins/MRStashTranscode/MRStashTranscode.py
@@ -14,6 +14,10 @@ tasks:
     description: Estimates output size for a single scene without transcoding.
     defaultArgs:
       mode: Dry Run
+  - name: Probe
+    description: Live-probes a single scene's file with ffprobe to report its actual codec and resolution.
+    defaultArgs:
+      mode: Probe
   - name: Transcode Scene
     description: Transcodes a single scene by ID.
     defaultArgs:

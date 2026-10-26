@@ -72,6 +72,16 @@
 .codec-h265 .codec-dot { background: #ffb700; }
 .codec-other .codec-dot { background: #444; }
 
+/* All badge states are clickable now — the modal opens regardless of codec. */
+.stash-transcode-badge.st-clickable {
+  cursor: pointer;
+}
+
+.stash-transcode-badge.st-clickable:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
 /* ── Tool page ──────────────────────────────────────────────────────────── */
 
 .st-tool-page {
@@ -309,6 +319,87 @@
   color: #666;
   font-size: 14px;
   padding: 40px 0;
+}
+
+/* ── Probe + options ────────────────────────────────────────────────────── */
+
+.st-options {
+  margin-bottom: 24px;
+}
+
+.st-options-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.st-probe-result {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.st-probe-result.st-probe-mismatch {
+  background: rgba(244, 67, 54, 0.08);
+  border-color: rgba(244, 67, 54, 0.35);
+}
+
+.st-probe-line {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  padding: 2px 0;
+}
+
+.st-probe-key {
+  color: #888;
+  min-width: 110px;
+}
+
+.st-probe-val {
+  color: #ddd;
+  font-weight: 600;
+}
+
+.st-probe-warn {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #f4a142;
+  line-height: 1.4;
+}
+
+.st-select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 5px;
+  color: #ddd;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.st-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #ccc;
+  cursor: pointer;
+  user-select: none;
+}
+
+.st-checkbox input {
+  accent-color: #ffb700;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.st-checkbox-hint {
+  font-size: 11px;
+  color: #666;
 }
 
 /* ── Modal overlay ──────────────────────────────────────────────────────────── */

@@ -1,0 +1,568 @@
+/* ── MRStashDupManager ─────────────────────────────────────────────────────────── */
+
+/* Overlay + modal shell */
+.dm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
+  z-index: 10000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 20px;
+  overflow-y: auto;
+}
+
+.dm-modal {
+  background: #1e2733;
+  color: #e6e9ee;
+  width: 100%;
+  max-width: 1180px;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 14px;
+}
+
+/* Header */
+.dm-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.dm-header-left h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 600;
+}
+.dm-subtitle {
+  margin: 0;
+  color: #93a1af;
+  font-size: 13px;
+  max-width: 720px;
+}
+.dm-close-btn {
+  background: transparent;
+  border: none;
+  color: #93a1af;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: inline-flex;
+}
+.dm-close-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+/* Scan bar */
+.dm-scan-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  flex-wrap: wrap;
+}
+.dm-scan-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 240px;
+}
+.dm-progress-track {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.dm-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4fc3f7, #29b6f6);
+  transition: width 0.4s ease;
+}
+.dm-scan-msg {
+  color: #93a1af;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.dm-scan-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.dm-stat-inline strong {
+  color: #4fc3f7;
+  font-size: 16px;
+}
+.dm-stat-muted {
+  color: #93a1af;
+  font-size: 12px;
+}
+
+/* Buttons */
+.dm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  border-radius: 7px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+  white-space: nowrap;
+}
+.dm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.dm-btn-primary {
+  background: #29b6f6;
+  color: #05141f;
+}
+.dm-btn-primary:hover:not(:disabled) {
+  background: #4fc3f7;
+}
+.dm-btn-danger {
+  background: #e53935;
+  color: #fff;
+}
+.dm-btn-danger:hover:not(:disabled) {
+  background: #f44336;
+}
+.dm-btn-warn {
+  background: #fb8c00;
+  color: #1a1200;
+}
+.dm-btn-warn:hover:not(:disabled) {
+  background: #ffa726;
+}
+.dm-btn-ghost {
+  background: rgba(255, 255, 255, 0.07);
+  color: #cbd4dd;
+}
+.dm-btn-ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Status bars */
+.dm-error-bar {
+  background: rgba(229, 57, 53, 0.16);
+  color: #ff8a80;
+  padding: 10px 24px;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(229, 57, 53, 0.3);
+}
+.dm-success-bar {
+  background: rgba(102, 187, 106, 0.16);
+  color: #a5d6a7;
+  padding: 10px 24px;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(102, 187, 106, 0.3);
+}
+
+/* Review section */
+.dm-review-section {
+  padding: 16px 24px 24px;
+}
+.dm-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+.dm-search {
+  background: #141b24;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  padding: 8px 12px;
+  color: #e6e9ee;
+  font-size: 13px;
+  width: 280px;
+  max-width: 100%;
+}
+.dm-search:focus {
+  outline: none;
+  border-color: #4fc3f7;
+}
+
+/* Group list */
+.dm-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.dm-group {
+  background: #141b24;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.dm-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.dm-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #93a1af;
+}
+.dm-group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.dm-group-reclaim {
+  font-size: 12px;
+  color: #ffb74d;
+  font-weight: 500;
+}
+
+/* Match-type badge — how the group was flagged */
+.dm-match-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid;
+}
+.dm-match-phash {
+  color: #90caf9;
+  border-color: rgba(144, 202, 249, 0.4);
+  background: rgba(144, 202, 249, 0.12);
+}
+.dm-match-both {
+  color: #a5d6a7;
+  border-color: rgba(165, 214, 167, 0.45);
+  background: rgba(165, 214, 167, 0.14);
+}
+/* stash-id-only: amber, to prompt a visual confirmation since there's no phash */
+.dm-match-stashid {
+  color: #ffcc80;
+  border-color: rgba(255, 204, 128, 0.5);
+  background: rgba(255, 204, 128, 0.14);
+}
+.dm-group-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px;
+}
+@media (max-width: 820px) {
+  .dm-group-body {
+    grid-template-columns: 1fr;
+  }
+}
+.dm-losers {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dm-loser-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Scene card */
+.dm-card {
+  background: #1e2733;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dm-card-keep {
+  border-color: rgba(102, 187, 106, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(102, 187, 106, 0.2);
+}
+.dm-card-delete {
+  border-color: rgba(239, 83, 80, 0.35);
+}
+.dm-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.dm-keeper-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(102, 187, 106, 0.18);
+  color: #81c784;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 4px 9px;
+  border-radius: 5px;
+}
+.dm-make-keeper-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd4dd;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.dm-make-keeper-btn:hover {
+  background: rgba(102, 187, 106, 0.18);
+  color: #81c784;
+  border-color: rgba(102, 187, 106, 0.4);
+}
+.dm-rank-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dm-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dm-card-title a {
+  color: #e6e9ee;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dm-card-title a:hover {
+  color: #4fc3f7;
+}
+.dm-scene-id {
+  color: #6b7885;
+  font-size: 11px;
+  font-family: monospace;
+}
+.dm-card-path {
+  display: block;
+  background: #0f151d;
+  border-radius: 5px;
+  padding: 6px 9px;
+  font-size: 11px;
+  color: #8b98a6;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+/* Sprite / frame grid */
+.dm-sprite-wrap {
+  border-radius: 6px;
+  overflow: hidden;
+  background: #0f151d;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  line-height: 0;
+}
+.dm-sprite {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: auto;
+}
+/* When only a single cover frame is available, cap its height so it doesn't
+   dominate the card the way a full sprite sheet's aspect ratio does. */
+.dm-sprite-single {
+  max-height: 180px;
+  width: auto;
+  max-width: 100%;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+/* Stats */
+.dm-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dm-stat {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 5px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 62px;
+}
+.dm-stat-best {
+  background: rgba(79, 195, 247, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(79, 195, 247, 0.25);
+}
+.dm-stat-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7885;
+}
+.dm-stat-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6e9ee;
+}
+
+/* Meta chips */
+.dm-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dm-meta-chip {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #b0bcc8;
+}
+.dm-meta-organized {
+  color: #81c784;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.dm-meta-perf {
+  background: rgba(129, 140, 248, 0.14);
+  color: #b0b7f5;
+}
+
+/* Reasons */
+.dm-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dm-reason-chip {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgba(239, 83, 80, 0.14);
+  color: #ef9a9a;
+  border: 1px solid rgba(239, 83, 80, 0.25);
+}
+
+/* Loser actions */
+.dm-loser-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-left: 2px;
+}
+
+/* Empty / hint states */
+.dm-empty-state {
+  padding: 48px 24px;
+  text-align: center;
+  color: #93a1af;
+  font-size: 15px;
+}
+.dm-empty-error {
+  color: #ff8a80;
+}
+.dm-hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #6b7885;
+}
+
+/* Spinner */
+.dm-spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: dm-spin 0.7s linear infinite;
+}
+@keyframes dm-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Nav button hover already handled inline */
+#dm-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dm-criteria {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin-left: 4px;
+}
+
+.dm-criteria-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dm-criteria-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #90a4ae;
+}
+
+.dm-select {
+  background: #1c2127;
+  color: #e0e0e0;
+  border: 1px solid #384049;
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 96px;
+}
+
+.dm-select:hover:not(:disabled) {
+  border-color: #4fc3f7;
+}
+
+.dm-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dm-longname-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #ffb74d;
+  background: rgba(255, 183, 77, 0.12);
+  border: 1px solid rgba(255, 183, 77, 0.4);
+  border-radius: 4px;
+}
