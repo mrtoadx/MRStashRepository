@@ -101,7 +101,7 @@ def task_audit_vr_tags(url, apikey, plugins_config):
     vr_tag_id = find_or_create_vr_tag(url, apikey, tag_name)
     if not vr_tag_id:
         log(f"Tag {tag_name!r} not found in library. "
-            f"Scenes flagged for ADD won't have a tag to apply until you create it.", "w")
+            f"It will be created when you apply the first change in the UI.", "w")
 
     scenes = fetch_all_scenes(url, apikey)
     log(f"Auditing {len(scenes)} scenes…")

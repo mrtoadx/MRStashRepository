@@ -44,6 +44,34 @@
     );
   }
 
+  async function findOrCreateTag(name) {
+    const found = await gql(
+      `query($name: String!) {
+        findTags(tag_filter: { name: { value: $name, modifier: EQUALS } }) { tags { id } }
+      }`,
+      { name }
+    );
+    if (found.findTags.tags.length) return found.findTags.tags[0].id;
+    const created = await gql(
+      `mutation($input: TagCreateInput!) { tagCreate(input: $input) { id } }`,
+      { input: { name } }
+    );
+    LOG("created tag", name);
+    return created.tagCreate.id;
+  }
+
+  // The audit runs server-side against localhost, so its screenshot URLs point
+  // at the server's own localhost; use a path relative to wherever Stash is open.
+  function screenshotUrl(entry) {
+    if (!entry.screenshot) return null;
+    try {
+      const u = new URL(entry.screenshot, window.location.origin);
+      return u.pathname + u.search;
+    } catch (_) {
+      return `/scene/${entry.id}/screenshot`;
+    }
+  }
+
   async function runAuditTask() {
     await gql(
       `mutation RunPluginTask($plugin_id: ID!, $task_name: String!) {
@@ -89,6 +117,21 @@
     const [busyIds, setBusyIds] = useState({});
     const [doneIds, setDoneIds] = useState({});
     const [running, setRunning] = useState(false);
+    // Shared promise so concurrent applies don't each try to create the tag
+    const tagIdRef = React.useRef(null);
+
+    function getTagId() {
+      if (!tagIdRef.current) {
+        tagIdRef.current = audit.tag_id
+          ? Promise.resolve(audit.tag_id)
+          : findOrCreateTag(audit.tag_name);
+        tagIdRef.current.then(
+          id => setAudit(a => (a && !a.tag_id ? { ...a, tag_id: id } : a)),
+          () => { tagIdRef.current = null; }
+        );
+      }
+      return tagIdRef.current;
+    }
 
     useEffect(() => {
       document.body.style.overflow = "hidden";
@@ -107,6 +150,7 @@
         const fresh = await fetchAudit();
         if (fresh && fresh.generated_at && fresh.generated_at !== oldStamp) {
           clearInterval(iv);
+          tagIdRef.current = null;
           setAudit(fresh);
           setRunning(false);
           setDoneIds({});
@@ -116,10 +160,10 @@
     }
 
     async function applyOne(entry) {
-      if (!audit || !audit.tag_id) return;
+      if (!audit) return;
       setBusyIds(b => ({ ...b, [entry.id]: true }));
       try {
-        await applyTagChange(entry.id, audit.tag_id, entry.action);
+        await applyTagChange(entry.id, await getTagId(), entry.action);
         setDoneIds(d => ({ ...d, [entry.id]: true }));
       } catch (e) {
         LOG("apply failed", e);
@@ -165,7 +209,7 @@
             `Scanned ${audit.total_scenes} scenes — threshold ${audit.threshold}:1 — tag "${audit.tag_name}"`
           ),
           !audit.tag_id && ce("div", { className: "vra-warn" },
-            `Tag "${audit.tag_name}" doesn't exist yet. Create it in Stash before applying changes.`
+            `Tag "${audit.tag_name}" doesn't exist yet. It will be created when you apply the first change.`
           ),
 
           ce("div", { className: "vra-filter-bar" },
@@ -190,8 +234,8 @@
               key: entry.id,
               className: `vra-row ${doneIds[entry.id] ? "done" : ""}`
             },
-              entry.screenshot
-                ? ce("img", { src: entry.screenshot, alt: "" })
+              screenshotUrl(entry)
+                ? ce("img", { src: screenshotUrl(entry), alt: "", loading: "lazy" })
                 : ce("div", { className: "vra-noimg" }),
               ce("div", { className: "vra-row-info" },
                 ce("a", {
@@ -209,7 +253,7 @@
               }, entry.action === "add" ? "+ ADD VR" : "− REMOVE VR"),
               ce("button", {
                 className: "vra-btn vra-btn-small",
-                disabled: !audit.tag_id || busyIds[entry.id] || doneIds[entry.id],
+                disabled: busyIds[entry.id] || doneIds[entry.id],
                 onClick: () => applyOne(entry)
               }, doneIds[entry.id] ? "✓ Done" : busyIds[entry.id] ? "…" : "Apply")
             ))
@@ -218,7 +262,6 @@
           ce("div", { className: "vra-actions" },
             visible.length > 0 && ce("button", {
               className: "vra-btn vra-btn-primary",
-              disabled: !audit.tag_id,
               onClick: () => applyAll(visible)
             }, `Apply All (${visible.length})`),
             ce("button", {
