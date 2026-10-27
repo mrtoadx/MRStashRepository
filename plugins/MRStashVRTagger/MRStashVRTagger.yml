@@ -3,7 +3,7 @@ description: Audits scenes for the "Virtual Reality" tag based on aspect ratio. 
 version: 1.0.0
 exec:
   - python3
-  - /root/.stash/plugins/MRStashVRTagger/MRStashVRTagger.py
+  - "{pluginDir}/MRStashVRTagger.py"
 interface: raw
 tasks:
   - name: Audit VR Tags
