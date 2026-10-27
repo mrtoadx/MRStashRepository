@@ -10,6 +10,17 @@ ASSETS_DIR = os.path.join(PLUGIN_DIR, "assets")
 SESSION_COOKIE = None
 
 
+# Stash only shows stderr in its log (stdout is the plugin's result), and reads
+# the level from a \x01<level>\x02 prefix: t(race), d(ebug), i(nfo), w(arn), e(rror), p(rogress)
+def log(msg, level="i"):
+    sys.stderr.write(f"\x01{level}\x02{msg}\n")
+    sys.stderr.flush()
+
+
+def progress(fraction):
+    log(f"{min(max(fraction, 0), 1):.3f}", "p")
+
+
 def graphql_query(url, apikey, query, variables=None):
     headers = {"Content-Type": "application/json"}
     if apikey:
@@ -22,10 +33,10 @@ def graphql_query(url, apikey, query, variables=None):
         with urllib.request.urlopen(req) as response:
             body = json.loads(response.read().decode("utf-8"))
             if "errors" in body:
-                print(f"GraphQL errors: {body['errors']}", flush=True)
+                log(f"GraphQL errors: {body['errors']}", "e")
             return body
     except urllib.error.URLError as e:
-        print(f"GraphQL request failed: {e}", flush=True)
+        log(f"GraphQL request failed: {e}", "e")
         sys.exit(1)
 
 
@@ -68,7 +79,9 @@ def fetch_all_scenes(url, apikey):
             break
         all_scenes.extend(scenes)
         total = data.get("count", 0)
-        print(f"Fetched {len(all_scenes)}/{total} scenes…", flush=True)
+        log(f"Fetched {len(all_scenes)}/{total} scenes…", "d")
+        if total:
+            progress(len(all_scenes) / total)
         if len(all_scenes) >= total:
             break
         page += 1
@@ -83,15 +96,15 @@ def task_audit_vr_tags(url, apikey, plugins_config):
     except ValueError:
         threshold = 1.9
 
-    print(f"VR tag: {tag_name!r}  threshold: {threshold}", flush=True)
+    log(f"VR tag: {tag_name!r}  threshold: {threshold}")
 
     vr_tag_id = find_or_create_vr_tag(url, apikey, tag_name)
     if not vr_tag_id:
-        print(f"Warning: Tag {tag_name!r} not found in library. "
-              f"Scenes flagged for ADD won't have a tag to apply until you create it.", flush=True)
+        log(f"Tag {tag_name!r} not found in library. "
+            f"Scenes flagged for ADD won't have a tag to apply until you create it.", "w")
 
     scenes = fetch_all_scenes(url, apikey)
-    print(f"Auditing {len(scenes)} scenes…", flush=True)
+    log(f"Auditing {len(scenes)} scenes…")
 
     needs_add = []      # wide enough, but no VR tag
     needs_remove = []   # has VR tag, but not wide enough
@@ -149,14 +162,18 @@ def task_audit_vr_tags(url, apikey, plugins_config):
     with open(out_path, "w") as fp:
         json.dump(result, fp)
 
-    print(f"Done. {len(needs_add)} need ADD, {len(needs_remove)} need REMOVE, "
-          f"{len(skipped)} skipped. Wrote {out_path}", flush=True)
+    for entry in needs_add + needs_remove:
+        log(f"{entry['action'].upper()}: {entry['title']} "
+            f"({entry['width']}x{entry['height']}, {entry['ratio']}:1)", "d")
+    log(f"Done. {len(needs_add)} need ADD, {len(needs_remove)} need REMOVE, "
+        f"{len(skipped)} skipped. Wrote {out_path}")
+    log("Click the VR icon in the navbar to review and apply changes.")
 
 
 def main():
     raw = sys.stdin.read()
     if not raw.strip():
-        print("ERROR: stdin is empty.", flush=True)
+        log("stdin is empty.", "e")
         sys.exit(1)
     input_data = json.loads(raw)
     sc = input_data.get("server_connection", {})
@@ -180,14 +197,14 @@ def main():
 
     raw_args = input_data.get("args", {}) or {}
     task_name = raw_args.get("mode", "") if isinstance(raw_args, dict) else ""
-    print(f"Task={task_name!r}", flush=True)
+    log(f"Task={task_name!r}", "d")
 
     if task_name == "Audit VR Tags":
         config_res = graphql_query(url, apikey, "query { configuration { plugins } }")
         plugins_config = config_res.get("data", {}).get("configuration", {}).get("plugins", {}) or {}
         task_audit_vr_tags(url, apikey, plugins_config)
     else:
-        print(f"Unknown task: {task_name!r}", flush=True)
+        log(f"Unknown task: {task_name!r}", "e")
         sys.exit(1)
 
 

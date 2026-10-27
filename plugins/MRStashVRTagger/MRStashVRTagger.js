@@ -286,5 +286,11 @@
   }
 }
 
+  setTimeout(injectNavButton, 800);
+  if (PluginApi && PluginApi.Event) {
+    PluginApi.Event.addEventListener("stash:location", () => setTimeout(injectNavButton, 300));
+  }
 
-)();
+  // Expose for debugging
+  window.MRStashVRTagger = { open: openModal, refresh: injectNavButton };
+})();
