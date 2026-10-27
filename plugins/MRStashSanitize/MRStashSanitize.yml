@@ -3,7 +3,7 @@ description: Detects tag-like tokens in filenames (_BigAss, #BlowJob, CamelCase,
 version: 1.0.0
 exec:
   - python3
-  - /root/.stash/plugins/MRStashSanitize/MRStashSanitize.py
+  - "{pluginDir}/MRStashSanitize.py"
 interface: raw
 tasks:
   - name: Scan for Dirty Filenames

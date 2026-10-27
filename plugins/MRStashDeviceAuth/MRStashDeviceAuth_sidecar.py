@@ -639,6 +639,13 @@ def graphql_proxy():
             headers=headers,
             timeout=30,
         )
+        # Stash answers a bad/missing key with an empty 401, which looks just
+        # like a rejected device token to the headset — say which it was.
+        if resp.status_code == 401:
+            log.warning("Stash rejected the sidecar's API key (key read from %s, set=%s)",
+                        STASH_CONFIG_PATH, bool(_read_stash_api_key()))
+            return jsonify({"error": "Stash rejected the sidecar's API key. "
+                                     "Check the API key in Stash Settings > Security."}), 502
         return (resp.content, resp.status_code, {"Content-Type": "application/json"})
     except requests.exceptions.ConnectionError:
         return jsonify({"error": "Could not reach Stash GraphQL endpoint"}), 502
@@ -927,7 +934,7 @@ def _spawn_detached_child(stash_input: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
-    global STASH_BASE, STASH_GRAPHQL_URL, ADMIN_SECRET, devices
+    global STASH_BASE, STASH_GRAPHQL_URL, STASH_CONFIG_PATH, ADMIN_SECRET, devices
 
     is_child = "--child" in sys.argv
 
@@ -982,6 +989,12 @@ def main():
     STASH_BASE = _get_stash_base(stash_input)
     STASH_GRAPHQL_URL = f"{STASH_BASE}/graphql"
     log.info("Stash internal URL: %s", STASH_BASE)
+
+    # Stash passes its config directory; prefer it over the /root/.stash guess
+    stash_dir = stash_input.get("server_connection", {}).get("Dir")
+    if stash_dir and "STASH_CONFIG" not in os.environ:
+        STASH_CONFIG_PATH = Path(stash_dir) / "config.yml"
+    log.info("Stash config: %s", STASH_CONFIG_PATH)
 
     ADMIN_SECRET = _load_or_create_admin_secret()
     log.info("Admin secret loaded (len=%d)", len(ADMIN_SECRET))
