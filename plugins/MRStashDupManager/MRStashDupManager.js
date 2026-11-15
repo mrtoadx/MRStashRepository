@@ -279,26 +279,106 @@
   // thumbnails sampled across the scene's duration (the same asset the scrubber
   // preview uses). We render it as-is — it's already a grid, so it gives the
   // at-a-glance "is this the same video" comparison the native duplicate checker
-  // shows. If the sprite hasn't been generated yet the <img> 404s, so we hide it
-  // on error rather than showing a broken-image icon.
+  // shows.
+  //
+  // Load order: sprite → cover screenshot → explanatory placeholder. When an
+  // image fails we probe the URL to find out *why* (not generated, auth, etc.)
+  // and show that instead of silently hiding the preview.
+
+  // The scan task queries Stash via http://localhost:<port>, so Stash bakes
+  // "localhost" into every paths.* URL. That only works if the browser is on the
+  // Stash machine itself. Re-root the URL onto the origin (and base path, for
+  // reverse-proxy sub-paths) the UI is actually being served from.
+  function toBrowserUrl(u) {
+    if (!u) return u;
+    try {
+      const parsed = new URL(u, window.location.href);
+      const rel = (parsed.pathname + parsed.search + parsed.hash).replace(/^\/+/, "");
+      return new URL(rel, document.baseURI).href;
+    } catch (_) {
+      return u;
+    }
+  }
+
+  async function diagnoseImage(url) {
+    try {
+      const res = await fetch(url, { method: "GET", cache: "no-store", credentials: "same-origin" });
+      if (res.ok) {
+        const type = res.headers.get("content-type") || "";
+        return type.startsWith("image/") ? { code: "ok" } : { code: "not_image", status: res.status, type };
+      }
+      if (res.status === 404) return { code: "missing", status: 404 };
+      if (res.status === 401 || res.status === 403) return { code: "auth", status: res.status };
+      return { code: "http", status: res.status };
+    } catch (e) {
+      return { code: "network", error: e.message };
+    }
+  }
+
+  function describeFailure(kind, diag) {
+    if (!diag) return `Couldn't load ${kind}.`;
+    switch (diag.code) {
+      case "missing":
+        return kind === "sprite"
+          ? "No sprite sheet generated for this scene. Run Tasks → Generate with ‘Sprites’ enabled."
+          : "No cover image found for this scene. Run Tasks → Generate (or a scan) to create one.";
+      case "auth":
+        return `Not authorised to load the ${kind} (HTTP ${diag.status}). Try reloading Stash / logging in again.`;
+      case "not_image":
+        return `Server returned ${diag.type || "non-image content"} instead of an image for the ${kind} (HTTP ${diag.status}).`;
+      case "http":
+        return `Server error loading the ${kind} (HTTP ${diag.status}).`;
+      case "network":
+        return `Couldn't reach the ${kind} URL (network error).`;
+      case "ok":
+        return `The ${kind} downloaded but the browser couldn't display it (corrupt image?).`;
+      default:
+        return `Couldn't load ${kind}.`;
+    }
+  }
 
   function SpriteGrid({ member }) {
-    const [failed, setFailed] = useState(false);
+    const sprite = toBrowserUrl(member.sprite);
+    const screenshot = toBrowserUrl(member.screenshot);
 
-    // Prefer the sprite (grid of frames); fall back to the single screenshot.
-    const src = member.sprite || member.screenshot;
-    if (!src || failed) return null;
+    // stage: "sprite" | "screenshot" | "none"
+    const initialStage = sprite ? "sprite" : screenshot ? "screenshot" : "none";
+    const [stage, setStage] = useState(initialStage);
+    const [notes, setNotes] = useState(
+      initialStage === "none"
+        ? ["This report has no preview paths. Re-run the scan to refresh it."]
+        : []
+    );
 
-    const isSprite = !!member.sprite;
-    return ce("div", { className: "dm-sprite-wrap" },
-      ce("img", {
+    async function handleError() {
+      const kind = stage;
+      const url = kind === "sprite" ? sprite : screenshot;
+      const diag = await diagnoseImage(url);
+      const msg = describeFailure(kind, diag);
+      WARN(`${kind} failed for scene ${member.scene_id}:`, url, diag);
+      setNotes((prev) => [...prev, msg]);
+      if (kind === "sprite" && screenshot) setStage("screenshot");
+      else setStage("none");
+    }
+
+    const src = stage === "sprite" ? sprite : stage === "screenshot" ? screenshot : null;
+    const isSprite = stage === "sprite";
+
+    return ce("div", { className: "dm-sprite-wrap" + (src ? "" : " dm-sprite-empty") },
+      src && ce("img", {
+        key: src,
         className: "dm-sprite" + (isSprite ? "" : " dm-sprite-single"),
         src,
         loading: "lazy",
         alt: isSprite ? "frame grid" : "cover frame",
-        title: isSprite ? "Sampled frames across the scene" : "Cover frame",
-        onError: () => setFailed(true),
-      })
+        title: isSprite ? "Sampled frames across the scene" : "Cover frame (no sprite sheet available)",
+        onError: handleError,
+      }),
+      notes.length > 0 && ce("div", { className: "dm-sprite-note" },
+        ce(IconWarn), " ",
+        stage === "screenshot" ? "Showing cover frame. " : "No preview. ",
+        notes.join(" ")
+      )
     );
   }
 
