@@ -26,3 +26,7 @@ settings:
     displayName: VR Aspect Ratio Threshold
     description: Minimum width/height ratio for a video to count as VR (default 1.9, since most VR is 2:1 or wider).
     type: STRING
+  ignore_tag_name:
+    displayName: Ignore Tag Name
+    description: Scenes with this tag are skipped by the audit (default "VR Tagger: Ignore"). Use the Ignore button in the audit to mark false positives; remove the tag to include a scene again.
+    type: STRING

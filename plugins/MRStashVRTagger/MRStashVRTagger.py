@@ -91,12 +91,13 @@ def fetch_all_scenes(url, apikey):
 def task_audit_vr_tags(url, apikey, plugins_config):
     cfg = plugins_config.get("MRStashVRTagger", {}) or {}
     tag_name = (cfg.get("vr_tag_name") or "Virtual Reality").strip()
+    ignore_tag_name = (cfg.get("ignore_tag_name") or "VR Tagger: Ignore").strip()
     try:
         threshold = float(cfg.get("vr_aspect_ratio") or "1.9")
     except ValueError:
         threshold = 1.9
 
-    log(f"VR tag: {tag_name!r}  threshold: {threshold}")
+    log(f"VR tag: {tag_name!r}  ignore tag: {ignore_tag_name!r}  threshold: {threshold}")
 
     vr_tag_id = find_or_create_vr_tag(url, apikey, tag_name)
     if not vr_tag_id:
@@ -109,8 +110,14 @@ def task_audit_vr_tags(url, apikey, plugins_config):
     needs_add = []      # wide enough, but no VR tag
     needs_remove = []   # has VR tag, but not wide enough
     skipped = []        # no file / no dimensions
+    ignored_count = 0   # marked with the ignore tag
 
     for scene in scenes:
+        tags = scene.get("tags") or []
+        if any(t["name"].lower() == ignore_tag_name.lower() for t in tags):
+            ignored_count += 1
+            continue
+
         files = scene.get("files") or []
         if not files:
             skipped.append({"id": scene["id"], "title": scene.get("title"), "reason": "no files"})
@@ -123,7 +130,6 @@ def task_audit_vr_tags(url, apikey, plugins_config):
 
         ratio = w / h
         is_wide = ratio >= threshold
-        tags = scene.get("tags") or []
         has_vr = any(
             (vr_tag_id and t["id"] == vr_tag_id) or t["name"].lower() == tag_name.lower()
             for t in tags
@@ -150,11 +156,13 @@ def task_audit_vr_tags(url, apikey, plugins_config):
         "generated_at": int(time.time()),
         "tag_name": tag_name,
         "tag_id": vr_tag_id,
+        "ignore_tag_name": ignore_tag_name,
         "threshold": threshold,
         "total_scenes": len(scenes),
         "needs_add": needs_add,
         "needs_remove": needs_remove,
         "skipped_count": len(skipped),
+        "ignored_count": ignored_count,
     }
 
     os.makedirs(ASSETS_DIR, exist_ok=True)
@@ -166,7 +174,7 @@ def task_audit_vr_tags(url, apikey, plugins_config):
         log(f"{entry['action'].upper()}: {entry['title']} "
             f"({entry['width']}x{entry['height']}, {entry['ratio']}:1)", "d")
     log(f"Done. {len(needs_add)} need ADD, {len(needs_remove)} need REMOVE, "
-        f"{len(skipped)} skipped. Wrote {out_path}")
+        f"{len(skipped)} skipped, {ignored_count} ignored. Wrote {out_path}")
     log("Click the VR icon in the navbar to review and apply changes.")
 
 

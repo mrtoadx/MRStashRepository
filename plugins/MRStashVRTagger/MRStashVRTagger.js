@@ -116,9 +116,11 @@
     const [filter, setFilter] = useState("all");
     const [busyIds, setBusyIds] = useState({});
     const [doneIds, setDoneIds] = useState({});
+    const [ignoredIds, setIgnoredIds] = useState({});
     const [running, setRunning] = useState(false);
     // Shared promise so concurrent applies don't each try to create the tag
     const tagIdRef = React.useRef(null);
+    const ignoreTagIdRef = React.useRef(null);
 
     function getTagId() {
       if (!tagIdRef.current) {
@@ -131,6 +133,14 @@
         );
       }
       return tagIdRef.current;
+    }
+
+    function getIgnoreTagId() {
+      if (!ignoreTagIdRef.current) {
+        ignoreTagIdRef.current = findOrCreateTag(audit.ignore_tag_name || "VR Tagger: Ignore");
+        ignoreTagIdRef.current.catch(() => { ignoreTagIdRef.current = null; });
+      }
+      return ignoreTagIdRef.current;
     }
 
     useEffect(() => {
@@ -154,6 +164,7 @@
           setAudit(fresh);
           setRunning(false);
           setDoneIds({});
+          setIgnoredIds({});
         }
         if (attempts > 600) { clearInterval(iv); setRunning(false); }
       }, 1000);
@@ -172,9 +183,23 @@
       }
     }
 
+    // Tags the scene so future audits skip it (for near-threshold false positives)
+    async function ignoreOne(entry) {
+      if (!audit) return;
+      setBusyIds(b => ({ ...b, [entry.id]: true }));
+      try {
+        await applyTagChange(entry.id, await getIgnoreTagId(), "add");
+        setIgnoredIds(d => ({ ...d, [entry.id]: true }));
+      } catch (e) {
+        LOG("ignore failed", e);
+      } finally {
+        setBusyIds(b => { const n = { ...b }; delete n[entry.id]; return n; });
+      }
+    }
+
     async function applyAll(list) {
       for (const entry of list) {
-        if (doneIds[entry.id]) continue;
+        if (doneIds[entry.id] || ignoredIds[entry.id]) continue;
         await applyOne(entry);
       }
     }
@@ -206,7 +231,8 @@
 
         audit && ce(React.Fragment, null,
           ce("div", { className: "vra-subtitle" },
-            `Scanned ${audit.total_scenes} scenes — threshold ${audit.threshold}:1 — tag "${audit.tag_name}"`
+            `Scanned ${audit.total_scenes} scenes — threshold ${audit.threshold}:1 — tag "${audit.tag_name}"` +
+            (audit.ignored_count ? ` — ${audit.ignored_count} ignored` : "")
           ),
           !audit.tag_id && ce("div", { className: "vra-warn" },
             `Tag "${audit.tag_name}" doesn't exist yet. It will be created when you apply the first change.`
@@ -232,7 +258,7 @@
           ce("div", { className: "vra-list" },
             visible.map(entry => ce("div", {
               key: entry.id,
-              className: `vra-row ${doneIds[entry.id] ? "done" : ""}`
+              className: `vra-row ${doneIds[entry.id] || ignoredIds[entry.id] ? "done" : ""}`
             },
               screenshotUrl(entry)
                 ? ce("img", { src: screenshotUrl(entry), alt: "", loading: "lazy" })
@@ -252,8 +278,14 @@
                 className: `vra-action-badge ${entry.action}`
               }, entry.action === "add" ? "+ ADD VR" : "− REMOVE VR"),
               ce("button", {
+                className: "vra-btn vra-btn-small vra-btn-secondary",
+                title: `Tag with "${audit.ignore_tag_name || "VR Tagger: Ignore"}" so future audits skip this scene`,
+                disabled: busyIds[entry.id] || doneIds[entry.id] || ignoredIds[entry.id],
+                onClick: () => ignoreOne(entry)
+              }, ignoredIds[entry.id] ? "Ignored" : "Ignore"),
+              ce("button", {
                 className: "vra-btn vra-btn-small",
-                disabled: busyIds[entry.id] || doneIds[entry.id],
+                disabled: busyIds[entry.id] || doneIds[entry.id] || ignoredIds[entry.id],
                 onClick: () => applyOne(entry)
               }, doneIds[entry.id] ? "✓ Done" : busyIds[entry.id] ? "…" : "Apply")
             ))
