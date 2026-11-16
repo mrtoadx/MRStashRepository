@@ -28,5 +28,5 @@ settings:
     type: STRING
   ignore_tag_name:
     displayName: Ignore Tag Name
-    description: Scenes with this tag are skipped by the audit (default "VR Tagger: Ignore"). Use the Ignore button in the audit to mark false positives; remove the tag to include a scene again.
+    description: 'Scenes with this tag are skipped by the audit (default "VR Tagger: Ignore"). Use the Ignore button in the audit to mark false positives; remove the tag to include a scene again.'
     type: STRING
