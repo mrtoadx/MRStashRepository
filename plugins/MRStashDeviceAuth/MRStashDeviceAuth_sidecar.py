@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 """
-MRStashDeviceAuth Sidecar — MRStashDeviceAuth_sidecar.py  v0.4.0
+MRStashDeviceAuth Sidecar — MRStashDeviceAuth_sidecar.py  v0.5.0
 
 Flask HTTP server that runs inside the Stash Docker container on port 9997
 (configurable). Stash executes this via the plugin task system.
+
+Changelog v0.5.0
+----------------
+- Pending-action queue. Headsets can *request* destructive operations
+  (currently: delete_scene) via /actions/request; an admin approves or denies
+  them from the Stash UI modal. Persisted to actions.json; resolved entries
+  are kept for ACTION_HISTORY_DAYS so devices can see the outcome.
+- /graphql proxy now rejects any mutation not in DEVICE_MUTATION_ALLOWLIST
+  (403). Previously a device could call sceneDestroy etc. directly.
+- GET /summary returns pending pairing + action counts for the navbar badge.
 
 Changelog v0.4.0
 ----------------
@@ -33,8 +43,14 @@ Endpoints
     GET  /stream/<scene_id>         Authenticated stream proxy (device token)
     GET  /screenshot/<scene_id>     Authenticated screenshot proxy (device token)
     GET  /preview/<scene_id>        Authenticated preview proxy (device token)
+    POST /actions/request           Queue an action, e.g. {type:"delete_scene", scene_id}
+    GET  /actions/mine[?scene_id=]  This device's requests + their status
+    POST /actions/cancel            Withdraw this device's pending request {id}
 
   Admin-secret gated:
+    GET  /summary                   {pending_pairings, pending_actions}
+    GET  /actions?status=pending|all
+    POST /actions/resolve           {ids:[…]|"all", decision:"approve"|"deny", delete_file}
     GET  /logs?n=<lines>            Tail sidecar.log
     GET  /pending                   List pending pairing codes
     GET  /devices                   List paired devices
@@ -116,6 +132,7 @@ PID_FILE = Path(tempfile.gettempdir()) / "stashvr_sidecar.pid"
 ADMIN_SECRET_FILE = PLUGIN_DIR / "admin_secret.txt"
 ASSETS_DIR        = PLUGIN_DIR / "assets"
 ADMIN_SECRET_ASSET = ASSETS_DIR / "admin_secret.json"
+ACTIONS_FILE      = PLUGIN_DIR / "actions.json"
 
 def _default_stash_config_path() -> Path:
     if sys.platform == "win32":
@@ -132,12 +149,34 @@ DEFAULT_PORT         = 9997
 STREAM_CHUNK_SIZE    = 1024 * 64
 LOG_MAX_LINES        = 1000
 
+# Pending-action queue
+ACTION_TYPES          = {"delete_scene"}
+ACTION_HISTORY_DAYS   = 30          # resolved actions older than this are pruned
+ACTION_REASON_MAX_LEN = 280
+
+# GraphQL mutations a headset may run through /graphql. Everything else is
+# rejected with 403 — destructive operations (sceneDestroy, deleteFiles,
+# execSQL, configureGeneral, runPluginTask, …) must go through the
+# /actions queue and be approved by an admin in the Stash UI.
+# Add to this set if the client starts using a new (non-destructive) mutation;
+# rejected names are logged so they're easy to spot.
+DEVICE_MUTATION_ALLOWLIST = {
+    "sceneSaveActivity",
+    "sceneAddPlay",
+    "sceneIncrementPlayCount",
+    "sceneIncrementO",
+    "sceneAddO",
+    "sceneDecrementO",
+    "sceneUpdate",          # ratings / organized flag / tag edits
+}
+
 # ---------------------------------------------------------------------------
 # In-memory state
 # ---------------------------------------------------------------------------
 pending_codes:  dict = {}   # code  -> {device_name, expires_at}
 approved_codes: dict = {}   # code  -> {token, device_name, approved_at}
 devices:        dict = {}   # token -> {device_name, paired_at, last_seen}
+actions:        dict = {}   # action_id -> action record (see /actions/request)
 state_lock = threading.Lock()
 
 ADMIN_SECRET: str = ""  # set in main()
@@ -213,6 +252,39 @@ def _load_devices() -> dict:
 
 def _save_devices() -> None:
     PAIRING_FILE.write_text(json.dumps(devices, indent=2))
+
+
+def _load_actions() -> dict:
+    if not ACTIONS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(ACTIONS_FILE.read_text())
+    except Exception as exc:
+        log.warning("Could not read actions.json: %s — starting fresh.", exc)
+        return {}
+    # An action left "processing" means we died mid-approval. Put it back in
+    # the queue so an admin can retry it rather than leaving it stuck.
+    for a in data.values():
+        if a.get("status") == "processing":
+            a["status"] = "pending"
+    return data
+
+
+def _save_actions() -> None:
+    """Caller must hold state_lock."""
+    tmp = ACTIONS_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(actions, indent=2))
+    os.replace(tmp, ACTIONS_FILE)
+
+
+def _prune_actions() -> None:
+    """Drop resolved actions past the history window. Caller holds state_lock."""
+    cutoff = time.time() - ACTION_HISTORY_DAYS * 86400
+    stale = [k for k, a in actions.items()
+             if a["status"] not in ("pending", "processing")
+             and (a.get("resolved_ts") or 0) < cutoff]
+    for k in stale:
+        del actions[k]
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +395,147 @@ def _get_scene_preview_url(scene_id: str):
     except Exception as exc:
         log.warning("Could not resolve preview for scene %s: %s", scene_id, exc, exc_info=True)
         return None
+
+
+def _stash_gql(query: str, variables: dict, timeout: int = 30) -> dict:
+    """POST to Stash GraphQL with the server API key. Raises on transport errors."""
+    resp = requests.post(
+        STASH_GRAPHQL_URL,
+        json={"query": query, "variables": variables},
+        headers=_stash_headers(),
+        timeout=timeout,
+    )
+    if resp.status_code == 401:
+        raise RuntimeError("Stash rejected the sidecar's API key")
+    return resp.json()
+
+
+def _fetch_scene_summary(scene_id: str):
+    """
+    Snapshot what an admin needs to judge a delete request. Captured at
+    request time so the queue still makes sense if the scene changes later.
+    Returns None if the scene doesn't exist.
+    """
+    query = """
+    query FindScene($id: ID!) {
+      findScene(id: $id) {
+        id
+        title
+        studio { name }
+        files { path basename size }
+      }
+    }
+    """
+    payload = _stash_gql(query, {"id": scene_id}, timeout=10)
+    scene = (payload.get("data") or {}).get("findScene")
+    if not scene:
+        return None
+    files = scene.get("files") or []
+    primary = files[0] if files else {}
+    return {
+        "scene_title": scene.get("title") or primary.get("basename") or f"Scene {scene_id}",
+        "studio":      (scene.get("studio") or {}).get("name"),
+        "path":        primary.get("path"),
+        "size":        sum(int(f.get("size") or 0) for f in files),
+        "file_count":  len(files),
+    }
+
+
+def _destroy_scene(scene_id: str, delete_file: bool):
+    """Returns (ok, error_message)."""
+    mutation = """
+    mutation Destroy($input: SceneDestroyInput!) {
+      sceneDestroy(input: $input)
+    }
+    """
+    try:
+        payload = _stash_gql(mutation, {"input": {
+            "id":               scene_id,
+            "delete_file":      bool(delete_file),
+            "delete_generated": True,
+        }})
+    except Exception as exc:
+        return False, str(exc)
+    if payload.get("errors"):
+        return False, "; ".join(e.get("message", "?") for e in payload["errors"])
+    if not (payload.get("data") or {}).get("sceneDestroy"):
+        return False, "Stash returned false for sceneDestroy"
+    return True, None
+
+
+# ---------------------------------------------------------------------------
+# GraphQL mutation filter (device proxy)
+# ---------------------------------------------------------------------------
+
+_GQL_STRIP_RE = re.compile(r'"""[\s\S]*?"""|"(?:\\.|[^"\\\n])*"|#[^\n]*')
+_GQL_TOKEN_RE = re.compile(r'\.\.\.|[A-Za-z_]\w*|[{}():@$]')
+
+
+def _mutation_root_fields(query: str):
+    """
+    Return the top-level field names of every `mutation` operation in a
+    GraphQL document. Deliberately fails closed: a fragment spread or inline
+    fragment at the mutation root yields the sentinel "..." so the caller
+    rejects it (we don't resolve fragments here).
+
+    This is a lightweight scanner, not a full parser — it only needs to
+    answer "which root mutation fields would run", which in GraphQL are
+    always literal names (no string escapes, no computed names).
+    """
+    q = _GQL_STRIP_RE.sub('""', query or "")
+    tokens = [m.group(0) for m in _GQL_TOKEN_RE.finditer(q)]
+    fields = []
+    depth = paren = 0
+    in_mutation = False
+    root_depth = None
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t == "(":
+            paren += 1
+        elif t == ")":
+            paren -= 1
+        elif paren == 0 and t == "{":
+            depth += 1
+            if in_mutation and root_depth is None:
+                root_depth = depth
+        elif paren == 0 and t == "}":
+            if in_mutation and depth == root_depth:
+                in_mutation, root_depth = False, None
+            depth -= 1
+        elif depth == 0 and paren == 0 and t == "mutation":
+            in_mutation = True
+        elif in_mutation and depth == root_depth and paren == 0:
+            if t == "...":
+                fields.append("...")
+            elif t in ("@", "$", ":"):
+                pass
+            elif tokens[i - 1] in ("@", "..."):
+                pass                                  # directive / fragment name
+            elif i + 1 < len(tokens) and tokens[i + 1] == ":":
+                pass                                  # alias — real name follows
+            else:
+                fields.append(t)
+        i += 1
+    return fields
+
+
+def _disallowed_mutations(raw_body: bytes):
+    """Names of root mutation fields in the request that aren't allowlisted."""
+    try:
+        body = json.loads(raw_body or b"{}")
+    except Exception:
+        return ["<unparseable body>"]
+    ops = body if isinstance(body, list) else [body]   # batched requests
+    bad = []
+    for op in ops:
+        if not isinstance(op, dict):
+            bad.append("<invalid op>")
+            continue
+        for f in _mutation_root_fields(str(op.get("query", ""))):
+            if f not in DEVICE_MUTATION_ALLOWLIST:
+                bad.append(f)
+    return bad
 
 # ---------------------------------------------------------------------------
 # Token validation
@@ -619,6 +832,245 @@ def revoke():
     return jsonify({"status": "revoked", "device_name": name})
 
 
+# ── Pending actions: device side (device-token gated) ────────────────────────
+#
+# Action record:
+#   id, type ("delete_scene"), scene_id, scene_title, studio, path, size,
+#   file_count, status ("pending"|"processing"|"approved"|"denied"|
+#   "cancelled"|"failed"), requested_at, requested_ts, resolved_at,
+#   resolved_ts, delete_file, error,
+#   requesters: [{token_id, device_name, reason, requested_at}]
+#
+# Several devices can request the same scene; that folds into one action
+# with multiple requesters rather than duplicating queue entries.
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _action_for_device(a: dict, token_id: str) -> dict:
+    """Device-facing view: no other devices' tokens, no server paths."""
+    mine = next((r for r in a["requesters"] if r["token_id"] == token_id), None)
+    return {
+        "id":           a["id"],
+        "type":         a["type"],
+        "scene_id":     a["scene_id"],
+        "scene_title":  a["scene_title"],
+        "status":       a["status"],
+        "requested_at": (mine or {}).get("requested_at") or a["requested_at"],
+        "resolved_at":  a.get("resolved_at") or "",
+        "error":        a.get("error") or "",
+    }
+
+
+def _action_for_admin(a: dict) -> dict:
+    out = {k: v for k, v in a.items() if k != "requesters"}
+    out["requesters"] = [
+        {
+            "device_name":  r["device_name"],
+            "token_hint":   r["token_id"][:8] + "…",
+            "reason":       r.get("reason") or "",
+            "requested_at": r["requested_at"],
+        }
+        for r in a["requesters"]
+    ]
+    return out
+
+
+@app.post("/actions/request")
+def action_request():
+    token_id = _extract_token()
+    if not _validate_token(token_id):
+        return jsonify({"error": "Invalid or missing device token."}), 401
+
+    body     = request.get_json(silent=True) or {}
+    a_type   = str(body.get("type", "delete_scene")).strip()
+    scene_id = str(body.get("scene_id", "")).strip()
+    reason   = str(body.get("reason") or "").strip()[:ACTION_REASON_MAX_LEN]
+
+    if a_type not in ACTION_TYPES:
+        return jsonify({"error": f"Unsupported action type '{a_type}'"}), 400
+    if not scene_id.isdigit():
+        return jsonify({"error": "scene_id must be a numeric Stash scene id"}), 400
+
+    with state_lock:
+        device_name = devices.get(token_id, {}).get("device_name", "Unknown device")
+        existing = next((a for a in actions.values()
+                         if a["status"] in ("pending", "processing")
+                         and a["type"] == a_type and a["scene_id"] == scene_id), None)
+        if existing:
+            if not any(r["token_id"] == token_id for r in existing["requesters"]):
+                existing["requesters"].append({
+                    "token_id": token_id, "device_name": device_name,
+                    "reason": reason, "requested_at": _now_iso(),
+                })
+                _save_actions()
+            return jsonify({**_action_for_device(existing, token_id), "duplicate": True})
+
+    # Look the scene up outside the lock — it's a network call.
+    try:
+        summary = _fetch_scene_summary(scene_id)
+    except Exception as exc:
+        log.warning("Scene lookup failed for delete request %s: %s", scene_id, exc)
+        return jsonify({"error": "Could not reach Stash to verify the scene"}), 502
+    if summary is None:
+        return jsonify({"error": f"Scene {scene_id} not found"}), 404
+
+    now = _now_iso()
+    record = {
+        "id":           uuid.uuid4().hex[:12],
+        "type":         a_type,
+        "scene_id":     scene_id,
+        **summary,
+        "status":       "pending",
+        "requested_at": now,
+        "requested_ts": time.time(),
+        "resolved_at":  None,
+        "resolved_ts":  None,
+        "delete_file":  None,
+        "error":        None,
+        "requesters":   [{
+            "token_id": token_id, "device_name": device_name,
+            "reason": reason, "requested_at": now,
+        }],
+    }
+    with state_lock:
+        _prune_actions()
+        actions[record["id"]] = record
+        _save_actions()
+
+    log.info("Delete requested for scene %s ('%s') by '%s'",
+             scene_id, summary["scene_title"], device_name)
+    return jsonify({**_action_for_device(record, token_id), "duplicate": False})
+
+
+@app.get("/actions/mine")
+def actions_mine():
+    """This device's requests, newest first. Optional ?scene_id= filter."""
+    token_id = _extract_token()
+    if not _validate_token(token_id):
+        return jsonify({"error": "Invalid or missing device token."}), 401
+
+    scene_id = request.args.get("scene_id", "").strip()
+    with state_lock:
+        mine = [a for a in actions.values()
+                if any(r["token_id"] == token_id for r in a["requesters"])
+                and (not scene_id or a["scene_id"] == scene_id)]
+        mine.sort(key=lambda a: a["requested_ts"], reverse=True)
+        result = [_action_for_device(a, token_id) for a in mine]
+    # Wrapped in an object: Unity's JsonUtility can't parse top-level arrays.
+    return jsonify({"actions": result})
+
+
+@app.post("/actions/cancel")
+def action_cancel():
+    """Withdraw this device's request. The action is cancelled once no requesters remain."""
+    token_id = _extract_token()
+    if not _validate_token(token_id):
+        return jsonify({"error": "Invalid or missing device token."}), 401
+
+    action_id = str((request.get_json(silent=True) or {}).get("id", "")).strip()
+    with state_lock:
+        a = actions.get(action_id)
+        if not a or not any(r["token_id"] == token_id for r in a["requesters"]):
+            return jsonify({"error": "Unknown action"}), 404
+        if a["status"] != "pending":
+            return jsonify({"error": f"Action is already {a['status']}"}), 409
+        a["requesters"] = [r for r in a["requesters"] if r["token_id"] != token_id]
+        if not a["requesters"]:
+            a["status"]      = "cancelled"
+            a["resolved_at"] = _now_iso()
+            a["resolved_ts"] = time.time()
+        _save_actions()
+        result = _action_for_device(a, token_id)
+    return jsonify(result)
+
+
+# ── Pending actions: admin side ──────────────────────────────────────────────
+
+@app.get("/summary")
+@require_admin
+def admin_summary():
+    """Cheap counts for the navbar badge."""
+    with state_lock:
+        _purge_expired_codes()
+        return jsonify({
+            "pending_pairings": len(pending_codes),
+            "pending_actions":  sum(1 for a in actions.values() if a["status"] == "pending"),
+        })
+
+
+@app.get("/actions")
+@require_admin
+def list_actions():
+    """?status=pending (default) | all"""
+    want = request.args.get("status", "pending")
+    with state_lock:
+        _prune_actions()
+        items = [a for a in actions.values() if want == "all" or a["status"] == want]
+        items.sort(key=lambda a: a["requested_ts"], reverse=True)
+        result = [_action_for_admin(a) for a in items]
+    return jsonify({"actions": result})
+
+
+@app.post("/actions/resolve")
+@require_admin
+def resolve_actions():
+    """
+    Body: { "ids": ["…", …] | "all", "decision": "approve"|"deny",
+            "delete_file": bool }
+    Approving a delete_scene calls Stash's sceneDestroy. Each action is
+    resolved independently; one failure doesn't block the rest.
+    """
+    body        = request.get_json(silent=True) or {}
+    ids         = body.get("ids", [])
+    decision    = body.get("decision")
+    delete_file = bool(body.get("delete_file", False))
+
+    if decision not in ("approve", "deny"):
+        return jsonify({"error": "decision must be 'approve' or 'deny'"}), 400
+
+    with state_lock:
+        if ids == "all":
+            targets = [a for a in actions.values() if a["status"] == "pending"]
+        elif isinstance(ids, list):
+            targets = [actions[i] for i in ids
+                       if i in actions and actions[i]["status"] == "pending"]
+        else:
+            return jsonify({"error": "ids must be a list or 'all'"}), 400
+        for a in targets:
+            a["status"] = "processing"      # claim so a parallel resolve can't double-run
+        _save_actions()
+        target_ids = [a["id"] for a in targets]
+
+    results = []
+    for action_id in target_ids:
+        with state_lock:
+            a = actions[action_id]
+            scene_id, title = a["scene_id"], a["scene_title"]
+
+        if decision == "deny":
+            status, err = "denied", None
+        else:
+            ok, err = _destroy_scene(scene_id, delete_file)
+            status = "approved" if ok else "failed"
+
+        with state_lock:
+            a = actions[action_id]
+            a["status"]      = status
+            a["error"]       = err
+            a["delete_file"] = delete_file if decision == "approve" else None
+            a["resolved_at"] = _now_iso()
+            a["resolved_ts"] = time.time()
+            _save_actions()
+
+        log.info("Action %s (%s scene %s '%s') → %s%s", action_id, a["type"], scene_id,
+                 title, status, f" ({err})" if err else "")
+        results.append({"id": action_id, "status": status, "error": err})
+
+    return jsonify({"results": results})
+
+
 # ── GraphQL proxy (device-token gated) ───────────────────────────────────────
 
 @app.post("/graphql")
@@ -626,6 +1078,16 @@ def graphql_proxy():
     token_id = _extract_token()
     if not _validate_token(token_id):
         abort(401, description="Invalid or missing device token.")
+
+    blocked = _disallowed_mutations(request.get_data())
+    if blocked:
+        with state_lock:
+            name = devices.get(token_id, {}).get("device_name", "?")
+        log.warning("Blocked mutation(s) %s from device '%s'", blocked, name)
+        return jsonify({
+            "error": f"Mutation not permitted from devices: {', '.join(blocked)}. "
+                     "Destructive actions must be requested via /actions/request.",
+        }), 403
 
     headers = {
         "Content-Type": "application/json",
@@ -1000,6 +1462,9 @@ def main():
     log.info("Admin secret loaded (len=%d)", len(ADMIN_SECRET))
 
     devices = _load_devices()
+    actions.update(_load_actions())
+    log.info("Loaded %d device(s), %d action(s) (%d pending)", len(devices), len(actions),
+             sum(1 for a in actions.values() if a["status"] == "pending"))
 
     port = _get_port(stash_input)
     log.info("Starting MRStashDeviceAuth sidecar on :%d (PID %d)", port, os.getpid())

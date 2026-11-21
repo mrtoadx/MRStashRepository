@@ -1,5 +1,12 @@
 /**
- * MRStashDeviceAuth — MRStashDeviceAuth.js  v0.6.0
+ * MRStashDeviceAuth — MRStashDeviceAuth.js  v0.7.0
+ *
+ * Changelog v0.7.0
+ * ----------------
+ * - Navbar icon shows a red count badge for pending pairing requests plus
+ *   pending headset actions (polled from /summary every 5s).
+ * - Modal gains a "Pending Actions" tab: review headset delete requests,
+ *   select some/all, approve or deny, optionally deleting files from disk.
  *
  * Injected into Stash's web UI by the plugin system.
  *
@@ -183,6 +190,24 @@
 
     let navIcon = null;
 
+    // Pending counts for the navbar badge (pairing requests + queued actions).
+    const SUMMARY_INTERVAL_MS = 5_000;
+    let pendingCounts = { pending_pairings: 0, pending_actions: 0 };
+
+    async function pollSummary() {
+        if (!sidecarRunning) return;
+        try {
+            if (!ADMIN_SECRET) await loadAdminSecret();
+            const res = await sidecarAdmin("/summary", { signal: AbortSignal.timeout(2000) });
+            if (res.ok) pendingCounts = await res.json();
+        } catch { /* keep last known counts */ }
+        updateNavIcon();
+    }
+
+    function _pendingTotal() {
+        return (pendingCounts.pending_pairings || 0) + (pendingCounts.pending_actions || 0);
+    }
+
     const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"
         viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M12 2 L21.66 7 L21.66 17 L12 22 L2.34 17 L2.34 7 Z"/>
@@ -193,7 +218,14 @@
         "width:2rem", "height:2rem", "border-radius:50%", "border:none",
         "background:transparent", "cursor:pointer",
         "transition:color .2s,background .15s", "margin-left:.25rem", "flex-shrink:0",
-        "padding:0",
+        "padding:0", "position:relative",
+    ].join(";");
+
+    const BADGE_STYLE = [
+        "position:absolute", "top:-2px", "right:-4px",
+        "min-width:16px", "height:16px", "padding:0 4px", "border-radius:8px",
+        "background:#ef4444", "color:#fff", "font:700 10px/16px system-ui,sans-serif",
+        "text-align:center", "pointer-events:none", "box-shadow:0 0 0 2px #202b33",
     ].join(";");
 
     function _iconColor() {
@@ -204,22 +236,39 @@
 
     function _iconTitle() {
         const base = "DeviceAuth — click to manage devices";
-        if (sidecarRunning) return `${base} (online)`;
-        if (startInFlight)  return `${base} (starting…)`;
-        return `${base} (offline)`;
+        let state = sidecarRunning ? "online" : (startInFlight ? "starting…" : "offline");
+        const parts = [];
+        const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+        if (pendingCounts.pending_pairings) parts.push(plural(pendingCounts.pending_pairings, "pairing"));
+        if (pendingCounts.pending_actions)  parts.push(plural(pendingCounts.pending_actions, "action"));
+        if (parts.length) state += ` · ${parts.join(", ")} pending`;
+        return `${base} (${state})`;
     }
 
     function _applyState(el) {
         el.setAttribute("style", `${BASE_STYLE};color:${_iconColor()}`);
         el.setAttribute("title",      _iconTitle());
         el.setAttribute("aria-label", _iconTitle());
+
+        // Only touch the DOM when the value changes: watchNavbar's
+        // MutationObserver (childList+subtree on body) calls back into here,
+        // so an unconditional textContent write would loop forever.
+        const badge = el.querySelector(".sda-nav-badge");
+        if (badge) {
+            const n    = sidecarRunning ? _pendingTotal() : 0;
+            const text = n > 99 ? "99+" : String(n);
+            const disp = n > 0 ? "inline-block" : "none";
+            if (badge.textContent !== text)   badge.textContent   = text;
+            if (badge.style.display !== disp) badge.style.display = disp;
+        }
     }
 
     function createNavIcon() {
         const b     = document.createElement("button");
         b.id        = "sda-nav-icon";
         b.type      = "button";
-        b.innerHTML = ICON_SVG;
+        b.innerHTML = ICON_SVG +
+            `<span class="sda-nav-badge" style="${BADGE_STYLE};display:none"></span>`;
         _applyState(b);
 
         b.addEventListener("click", (e) => {
@@ -366,6 +415,46 @@
         .sda-dot.offline { background: #f87171; }
         .sda-dot.starting { background: #facc15; animation: sdaPulse 1s infinite; }
         @keyframes sdaPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        .sda-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid #2a2a38; margin-bottom: 0.5rem; }
+        .sda-tab {
+            background: transparent; border: none; color: #a1a1aa;
+            padding: 0.55rem 0.9rem; font-size: 0.85rem; font-weight: 600;
+            cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+        }
+        .sda-tab:hover { color: #fff; }
+        .sda-tab.active { color: #fff; border-bottom-color: #7c6af7; }
+        .sda-tab-count {
+            display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 0.4rem;
+            border-radius: 9px; background: #ef4444; color: #fff;
+            font-size: 0.7rem; line-height: 18px; text-align: center;
+        }
+        .sda-toolbar {
+            display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+            padding: 0.6rem 0; margin-bottom: 0.25rem;
+        }
+        .sda-toolbar .sda-spacer { flex: 1; }
+        .sda-check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; cursor: pointer; }
+        .sda-check input { accent-color: #7c6af7; width: 15px; height: 15px; cursor: pointer; }
+        .sda-check.danger { color: #e06c75; }
+        .sda-card.selectable { cursor: pointer; justify-content: flex-start; }
+        .sda-card.selected { border-color: #7c6af7; background: #15132a; }
+        .sda-card-info { flex: 1; min-width: 0; }
+        .sda-card-info a { color: #fff; text-decoration: none; }
+        .sda-card-info a:hover { text-decoration: underline; }
+        .sda-path {
+            font-family: 'Cascadia Code', 'Fira Mono', monospace; font-size: 0.7rem;
+            color: #52525b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .sda-reason { color: #a1a1aa; font-size: 0.75rem; font-style: italic; margin-top: 0.2rem; }
+        .sda-btn-danger { background: #b91c1c; color: #fff; }
+        .sda-pill {
+            font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+            padding: 0.15rem 0.5rem; border-radius: 4px; flex-shrink: 0;
+        }
+        .sda-pill.approved  { background: rgba(74,222,128,.12); color: #4ade80; }
+        .sda-pill.denied, .sda-pill.cancelled { background: #2a2a38; color: #a1a1aa; }
+        .sda-pill.failed    { background: rgba(224,108,117,.15); color: #e06c75; }
         `;
         document.head.appendChild(style);
     }
@@ -381,6 +470,11 @@
         const [error, setError]       = useState(null);
         const [loading, setLoading]   = useState(true);
         const [online, setOnline]     = useState(sidecarRunning);
+        const [tab, setTab]           = useState("devices");
+        const [actionsList, setActs]  = useState([]);
+        const [selected, setSelected] = useState(() => new Set());
+        const [deleteFile, setDelFile] = useState(false);
+        const [resolving, setResolving] = useState(false);
         const busyRef = useRef(false);
 
         async function refresh() {
@@ -402,11 +496,12 @@
 
                 if (!ADMIN_SECRET) await loadAdminSecret();
 
-                const [pRes, dRes] = await Promise.all([
+                const [pRes, dRes, aRes] = await Promise.all([
                     sidecarAdmin("/pending"),
                     sidecarAdmin("/devices"),
+                    sidecarAdmin("/actions?status=all"),
                 ]);
-                if (pRes.status === 401 || dRes.status === 401) {
+                if ([pRes, dRes, aRes].some((r) => r.status === 401)) {
                     setError("Admin auth failed. Try closing and reopening the modal.");
                     setLoading(false);
                     return;
@@ -416,8 +511,21 @@
                     setLoading(false);
                     return;
                 }
-                setPending(await pRes.json());
+                const pendingJson = await pRes.json();
+                setPending(pendingJson);
                 setDevs(await dRes.json());
+
+                // Older sidecars don't have /actions — treat as empty rather than erroring.
+                const acts = aRes.ok ? ((await aRes.json()).actions || []) : [];
+                setActs(acts);
+                const stillPending = new Set(acts.filter((a) => a.status === "pending").map((a) => a.id));
+                setSelected((prev) => new Set([...prev].filter((id) => stillPending.has(id))));
+
+                pendingCounts = {
+                    pending_pairings: pendingJson.length,
+                    pending_actions:  stillPending.size,
+                };
+                updateNavIcon();
                 setError(null);
             } catch (e) {
                 setError(e.message || String(e));
@@ -472,8 +580,181 @@
             refresh();
         }
 
+        // ── Pending actions ────────────────────────────────────────────────
+        const pendingActions  = actionsList.filter((a) => a.status === "pending" || a.status === "processing");
+        const resolvedActions = actionsList.filter((a) => !pendingActions.includes(a)).slice(0, 15);
+        const selectable      = pendingActions.filter((a) => a.status === "pending");
+        const allSelected     = selectable.length > 0 && selectable.every((a) => selected.has(a.id));
+
+        function toggle(id) {
+            setSelected((prev) => {
+                const next = new Set(prev);
+                next.has(id) ? next.delete(id) : next.add(id);
+                return next;
+            });
+        }
+
+        function toggleAll() {
+            setSelected(allSelected ? new Set() : new Set(selectable.map((a) => a.id)));
+        }
+
+        async function resolve(ids, decision) {
+            if (!ids.length) return;
+            const label = `${ids.length} scene${ids.length === 1 ? "" : "s"}`;
+            if (decision === "approve") {
+                const msg = deleteFile
+                    ? `Delete ${label} from Stash AND permanently delete the file(s) from disk?\n\nThis cannot be undone.`
+                    : `Remove ${label} from the Stash library?\n\nFiles stay on disk; a rescan will re-import them.`;
+                if (!confirm(msg)) return;
+            }
+            setResolving(true);
+            try {
+                const res = await sidecarAdmin("/actions/resolve", {
+                    method: "POST",
+                    body: JSON.stringify({ ids, decision, delete_file: deleteFile }),
+                });
+                const j = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setError(j.error || `Resolve failed (${res.status})`);
+                } else {
+                    const failed = (j.results || []).filter((r) => r.status === "failed");
+                    if (failed.length) {
+                        setError(`${failed.length} action(s) failed: ${failed.map((f) => f.error).join("; ")}`);
+                    }
+                }
+            } catch (e) { setError(e.message); }
+            setResolving(false);
+            setSelected(new Set());
+            refresh();
+        }
+
+        function fmtSize(bytes) {
+            if (!bytes) return "";
+            const u = ["B", "KB", "MB", "GB", "TB"];
+            let i = 0, n = bytes;
+            while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+            return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
+        }
+
+        const fmtTime = (iso) => (iso || "").slice(0, 16).replace("T", " ");
+
+        function actionCard(a) {
+            const isSel = selected.has(a.id);
+            const who   = (a.requesters || []).map((r) => r.device_name).join(", ") || "unknown";
+            const reasons = (a.requesters || []).filter((r) => r.reason);
+            return ce("div", {
+                key: a.id,
+                className: `sda-card selectable${isSel ? " selected" : ""}`,
+                onClick: () => a.status === "pending" && toggle(a.id),
+            },
+                ce("label", { className: "sda-check", onClick: (e) => e.stopPropagation() },
+                    ce("input", {
+                        type: "checkbox", checked: isSel,
+                        disabled: a.status !== "pending" || resolving,
+                        onChange: () => toggle(a.id),
+                    })
+                ),
+                ce("div", { className: "sda-card-info" },
+                    ce("strong", null,
+                        "🗑 ",
+                        ce("a", {
+                            href: `/scenes/${a.scene_id}`, target: "_blank", rel: "noopener",
+                            onClick: (e) => e.stopPropagation(),
+                        }, a.scene_title || `Scene ${a.scene_id}`)
+                    ),
+                    ce("small", null,
+                        [a.studio, fmtSize(a.size), a.file_count > 1 ? `${a.file_count} files` : null,
+                         `Requested by ${who}`, fmtTime(a.requested_at)]
+                            .filter(Boolean).join(" · ")
+                    ),
+                    a.path && ce("div", { className: "sda-path", title: a.path }, a.path),
+                    reasons.map((r, i) => ce("div", { key: i, className: "sda-reason" },
+                        `“${r.reason}” — ${r.device_name}`))
+                ),
+                a.status === "processing"
+                    ? ce("span", { className: "sda-pill" }, "Working…")
+                    : ce("div", { className: "sda-actions", onClick: (e) => e.stopPropagation() },
+                        ce("button", {
+                            className: "sda-btn sda-btn-danger", disabled: resolving,
+                            onClick: () => resolve([a.id], "approve"),
+                        }, "Approve"),
+                        ce("button", {
+                            className: "sda-btn sda-btn-deny", disabled: resolving,
+                            onClick: () => resolve([a.id], "deny"),
+                        }, "Deny")
+                    )
+            );
+        }
+
+        function resolvedCard(a) {
+            const who = (a.requesters || []).map((r) => r.device_name).join(", ");
+            const detail = a.status === "approved"
+                ? (a.delete_file ? "Scene + file deleted" : "Removed from library (file kept)")
+                : a.status === "failed" ? `Error: ${a.error}` : null;
+            return ce("div", { key: a.id, className: "sda-card" },
+                ce("div", { className: "sda-card-info" },
+                    ce("strong", null, a.scene_title || `Scene ${a.scene_id}`),
+                    ce("small", null,
+                        [detail, who && `from ${who}`, fmtTime(a.resolved_at)].filter(Boolean).join(" · "))
+                ),
+                ce("span", { className: `sda-pill ${a.status}` }, a.status)
+            );
+        }
+
+        function renderActionsTab() {
+            const selIds = [...selected];
+            return [
+                ce("div", { key: "tb", className: "sda-toolbar" },
+                    ce("label", { className: "sda-check" },
+                        ce("input", {
+                            type: "checkbox", checked: allSelected,
+                            disabled: !selectable.length || resolving, onChange: toggleAll,
+                        }),
+                        "Select all"
+                    ),
+                    ce("label", {
+                        className: "sda-check danger",
+                        title: "Off: scene is removed from Stash but the video stays on disk. " +
+                               "On: the video file is deleted permanently.",
+                    },
+                        ce("input", {
+                            type: "checkbox", checked: deleteFile,
+                            onChange: (e) => setDelFile(e.target.checked),
+                        }),
+                        "Also delete files from disk"
+                    ),
+                    ce("span", { className: "sda-spacer" }),
+                    ce("button", {
+                        className: "sda-btn sda-btn-danger",
+                        disabled: !selIds.length || resolving,
+                        onClick: () => resolve(selIds, "approve"),
+                    }, `Approve${selIds.length ? ` (${selIds.length})` : ""}`),
+                    ce("button", {
+                        className: "sda-btn sda-btn-deny",
+                        disabled: !selIds.length || resolving,
+                        onClick: () => resolve(selIds, "deny"),
+                    }, `Deny${selIds.length ? ` (${selIds.length})` : ""}`)
+                ),
+                ce("div", { key: "pl", className: "sda-section-label" },
+                    `⏳ Delete Requests${pendingActions.length ? ` (${pendingActions.length})` : ""}`),
+                loading ? ce("div", { key: "ld", className: "sda-empty" }, "Loading…") :
+                pendingActions.length === 0
+                    ? ce("div", { key: "em", className: "sda-empty" }, "Nothing waiting for review.")
+                    : ce("div", { key: "pa" }, pendingActions.map(actionCard)),
+                resolvedActions.length > 0 &&
+                    ce("div", { key: "rl", className: "sda-section-label" }, "🕘 Recently Resolved"),
+                resolvedActions.length > 0 && ce("div", { key: "ra" }, resolvedActions.map(resolvedCard)),
+            ];
+        }
+
         const statusDotClass = online ? "online" : (startInFlight ? "starting" : "offline");
         const statusText = online ? "Sidecar online" : (startInFlight ? "Starting…" : "Offline");
+
+        const tabBtn = (id, label, count) =>
+            ce("button", {
+                className: `sda-tab${tab === id ? " active" : ""}`,
+                onClick: () => setTab(id),
+            }, label, count > 0 && ce("span", { className: "sda-tab-count" }, count));
 
         return ce("div", {
             className: "sda-modal-overlay",
@@ -487,7 +768,7 @@
                 ce("div", { className: "sda-subtitle" },
                     ce("span", { className: `sda-dot ${statusDotClass}` }),
                     statusText,
-                    " · Approve pairing requests and manage paired devices."
+                    " · Approve pairing requests, manage devices, and review headset requests."
                 ),
 
                 error && ce("div", { className: "sda-status-banner error" }, error),
@@ -495,6 +776,14 @@
                     "Sidecar is offline. The UI will reconnect automatically once it's back up."
                 ),
 
+                ce("div", { className: "sda-tabs" },
+                    tabBtn("devices", "Devices", pending.length),
+                    tabBtn("actions", "Pending Actions", selectable.length)
+                ),
+
+                tab === "actions" && renderActionsTab(),
+
+                tab === "devices" && ce(React.Fragment, null,
                 ce("div", { className: "sda-section-label" },
                     `⏳ Pending Pairing Requests${pending.length ? ` (${pending.length})` : ""}`
                 ),
@@ -545,6 +834,7 @@
                             )
                         )
                     )
+                )
             )
         );
     }
@@ -588,7 +878,9 @@
         await loadAdminSecret();  // best-effort; will be retried on demand
         watchNavbar();
         await checkHealth();
+        await pollSummary();
         setInterval(checkHealth, HEALTH_INTERVAL_MS);
+        setInterval(pollSummary, SUMMARY_INTERVAL_MS);
     }
 
     if (document.readyState === "loading") {
